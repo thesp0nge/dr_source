@@ -21,7 +21,12 @@ pip install .
 ## Usage
 
 ``` sh
-drsource /path/to/java/project
+# Scan all vulnerability types
+dr_source /path/to/project
+
+# Scan specific vulnerability types
+dr_source /path/to/project -v XSS -v SQL_INJECTION
+
 # Optional output file
 drsource /path/to/java/project -o report.json
 ```
