@@ -3,3 +3,4 @@ javalang
 beautifulsoup4
 scikit-learn
 PyYAML
+tqdm
