@@ -1,8 +1,16 @@
 import click
+import pkg_resources
 import json
 from .analyzer import DRSourceAnalyzer
 from .analyzer import VulnerabilityDetector
 from tqdm import tqdm
+
+
+def get_version():
+    try:
+        return pkg_resources.get_distribution("dr_source").version
+    except pkg_resources.DistributionNotFound:
+        return "0.1.0"  # Default version if not installed
 
 
 @click.command()
@@ -26,7 +34,11 @@ from tqdm import tqdm
     ),
     help="Specify vulnerability types to scan",
 )
-def main(project_path, output, vulnerabilities):
+@click.option(
+    "--stdout", is_flag=True, default=False, help="Print vulnerabilities to stdout"
+)
+@click.version_option(version=get_version(), prog_name="dr_source")
+def main(project_path, output, vulnerabilities, stdout):
     """DRSource: Java and JSP Vulnerability Scanner"""
     analyzer = DRSourceAnalyzer(project_path)
 
@@ -47,6 +59,15 @@ def main(project_path, output, vulnerabilities):
             file_vulnerabilities = analyzer.analyze_file(file_path, file_type)
 
             if file_vulnerabilities:
+                if stdout:
+                    for vuln in file_vulnerabilities:
+                        click.echo(f"Vulnerability in {file_path}:")
+                        click.echo(f"  Type: {vuln['type']}")
+                        click.echo(f"  Line: {vuln['line_number']}")
+                        click.echo(f"  Description: {vuln['description']}")
+                        click.echo(f"  Severity: {vuln['severity']}")
+                        click.echo(f"  Snippet: {vuln.get('match', 'N/A')}")
+                        click.echo("-" * 50)
                 analyzer._store_vulnerabilities(file_path, file_vulnerabilities)
                 all_vulnerabilities.extend(file_vulnerabilities)
 
