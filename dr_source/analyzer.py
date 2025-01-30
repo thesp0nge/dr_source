@@ -7,10 +7,64 @@ import click
 import javalang
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional, Tuple
+from .vulnerability import Vulnerability
 
 
 class VulnerabilityDetector:
-    VULNERABILITY_PATTERNS = {
+    SS_VULNERABILITY_PATTERNS = (
+        {
+            "SQL_INJECTION": {
+                "sources": {
+                    "getParameter",
+                    "getHeader",
+                    "getQueryString",
+                    "getCookies",
+                    "getInputStream",
+                    "getReader",
+                    "getParameterMap",
+                },
+                "sinks": {
+                    "executeQuery",
+                    "executeUpdate",
+                    "execute",
+                    "addBatch",
+                    "prepareStatement",
+                    "nativeQuery",
+                },
+                "severity": "HIGH",
+            },
+            "XSS": {
+                "sources": {
+                    "getParameter",
+                    "getHeader",
+                    "getCookies",
+                    "getQueryString",
+                },
+                "sinks": {
+                    "println",
+                    "print",
+                    "write",
+                    "getWriter",
+                    "out.print",
+                    "out.println",
+                    "response.getWriter",
+                },
+                "severity": "MEDIUM",
+            },
+            "PATH_TRAVERSAL": {
+                "sources": {"getParameter", "getHeader", "getQueryString"},
+                "sinks": {
+                    "File",
+                    "FileInputStream",
+                    "FileReader",
+                    "FileWriter",
+                    "RandomAccessFile",
+                },
+                "severity": "HIGH",
+            },
+        },
+    )
+    RE_VULNERABILITY_PATTERNS = {
         "XSS": [
             # Java Patterns
             r"(response\.getWriter\(\)\.print|out\.println)\(.*\)",
@@ -43,21 +97,25 @@ class VulnerabilityDetector:
     }
 
     @classmethod
-    def detect_vulnerabilities(cls, content: str, file_path: str) -> List[Dict]:
+    def re_detect_vulnerabilities(
+        cls, content: str, file_path: str
+    ) -> List[Vulnerability]:
         vulnerabilities = []
 
-        for vuln_type, patterns in cls.VULNERABILITY_PATTERNS.items():
+        for vuln_type, patterns in cls.RE_VULNERABILITY_PATTERNS.items():
             for pattern in patterns:
                 matches = re.finditer(pattern, content, re.MULTILINE | re.IGNORECASE)
                 for match in matches:
                     vulnerabilities.append(
-                        {
-                            "type": vuln_type,
-                            "line_number": content[: match.start()].count("\n") + 1,
-                            "description": f"Potential {vuln_type} vulnerability",
-                            "severity": cls._determine_severity(vuln_type),
-                            "match": match.group(0),
-                        }
+                        Vulnerability(
+                            type=vuln_type,
+                            line=content[: match.start()].count("\n") + 1,
+                            match=match.group(0),
+                            file_path=file_path,
+                            description=f"Potential {vuln_type} vulnerability",
+                            severity=cls._determine_severity(vuln_type),
+                            engine="re",
+                        )
                     )
 
         return vulnerabilities
@@ -81,6 +139,9 @@ class DRSourceAnalyzer:
         project_name = os.path.basename(os.path.normpath(project_path))
         self.db_path = f"{project_name}_vulnerabilities.sqlite3"
 
+        self.vulnerabilities: List[Vulnerability] = []
+        self.tainted_variables: Dict[str, Set[str]] = {}
+
         self.project_path = project_path
         self.logger = self._setup_logging()
         self._init_database()
@@ -100,10 +161,12 @@ class DRSourceAnalyzer:
                 id INTEGER PRIMARY KEY,
                 file_path TEXT,
                 line_number INTEGER,
+                engine TEXT,
                 vulnerability_type TEXT,
                 description TEXT,
                 severity TEXT,
-                code_snippet TEXT
+                code_snippet TEXT, 
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
             )
         """)
         conn.commit()
@@ -120,13 +183,13 @@ class DRSourceAnalyzer:
                     )
         return files
 
-    def analyze_file(self, file_path: str, file_type: str) -> List[Dict]:
+    def analyze_file(self, file_path: str, file_type: str) -> List[Vulnerability]:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             if file_type == "java":
-                vulnerabilities = VulnerabilityDetector.detect_vulnerabilities(
+                vulnerabilities = VulnerabilityDetector.re_detect_vulnerabilities(
                     content, file_path
                 )
             elif file_type == "jsp":
@@ -137,7 +200,7 @@ class DRSourceAnalyzer:
             self.logger.error(f"Error analyzing {file_path}: {e}")
             return []
 
-    def _analyze_jsp(self, content: str, file_path: str) -> List[Dict]:
+    def _analyze_jsp(self, content: str, file_path: str) -> List[Vulnerability]:
         """Enhanced JSP vulnerability analysis"""
         vulnerabilities = []
 
@@ -151,13 +214,15 @@ class DRSourceAnalyzer:
             matches = re.finditer(pattern, content)
             for match in matches:
                 vulnerabilities.append(
-                    {
-                        "type": "XSS",
-                        "line_number": content[: match.start()].count("\n") + 1,
-                        "description": "Potential XSS in JSP expression",
-                        "severity": "HIGH",
-                        "match": match.group(0),
-                    }
+                    Vulnerability(
+                        type="XSS",
+                        line=content[: match.start()].count("\n") + 1,
+                        match=match.group(0),
+                        file_path=file_path,
+                        description="Potential XSS in JSP expression",
+                        severity="HIGH",
+                        engine="re",
+                    )
                 )
 
         # Parse HTML for potential security issues
@@ -169,18 +234,20 @@ class DRSourceAnalyzer:
             elements = soup.find_all(attrs={attr: True})
             for el in elements:
                 vulnerabilities.append(
-                    {
-                        "type": "XSS",
-                        "line_number": content[: content.find(str(el))].count("\n") + 1,
-                        "description": f"Potential XSS via {attr} attribute",
-                        "severity": "HIGH",
-                        "match": str(el),
-                    }
+                    Vulnerability(
+                        type="XSS",
+                        line=content[: match.start()].count("\n") + 1,
+                        match=match.group(0),
+                        file_path=file_path,
+                        description=f"Potential XSS via {attr} attribute",
+                        severity="HIGH",
+                        engine="re",
+                    )
                 )
 
         return vulnerabilities
 
-    def analyze_project(self) -> List[Dict]:
+    def analyze_project(self) -> List[Vulnerability]:
         all_vulnerabilities = []
         project_files = self.find_project_files()
 
@@ -191,18 +258,20 @@ class DRSourceAnalyzer:
                 # Print vulnerabilities to stdout
                 for vuln in file_vulnerabilities:
                     print(f"Vulnerability in {file_path}:")
-                    print(f"  Type: {vuln['type']}")
-                    print(f"  Line: {vuln['line_number']}")
-                    print(f"  Description: {vuln['description']}")
-                    print(f"  Severity: {vuln['severity']}")
-                    print(f"  Snippet: {vuln.get('match', 'N/A')}")
+                    print(f"  Type: {vuln.type}")
+                    print(f"  Line: {vuln.line}")
+                    print(f"  Description: {vuln.description}")
+                    print(f"  Severity: {vuln.severity}")
+                    print(f"  Snippet: {vuln.match}")
                     print("-" * 50)
                 self._store_vulnerabilities(file_path, file_vulnerabilities)
                 all_vulnerabilities.extend(file_vulnerabilities)
 
         return all_vulnerabilities
 
-    def _store_vulnerabilities(self, file_path: str, vulnerabilities: List[Dict]):
+    def _store_vulnerabilities(
+        self, file_path: str, vulnerabilities: List[Vulnerability]
+    ):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -210,16 +279,17 @@ class DRSourceAnalyzer:
             cursor.execute(
                 """
                 INSERT INTO vulnerabilities 
-                (file_path, line_number, vulnerability_type, description, severity, code_snippet)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (file_path, line_number, engine, vulnerability_type, description, severity, code_snippet)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     file_path,
-                    vuln["line_number"],
-                    vuln["type"],
-                    vuln["description"],
-                    vuln["severity"],
-                    vuln.get("match", ""),
+                    vuln.line,
+                    vuln.engine,
+                    vuln.type,
+                    vuln.description,
+                    vuln.severity,
+                    vuln.match,
                 ),
             )
 
