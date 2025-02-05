@@ -67,7 +67,8 @@ class VulnerabilityDetector:
     RE_VULNERABILITY_PATTERNS = {
         "XSS": [
             # Java Patterns
-            r"(response\.getWriter\(\)\.print|out\.println)\(.*\)",
+            # r"(response\.getWriter\(\)\.print|out\.println)\(.*\)",
+            r"(response\\.getWriter\\(\\)\\.print|out\\.println)\\(\\s*(?!\"[^\"]*\"\\s*\\)$).*",
             # JSP Patterns
             r"\$\{.*?\}",  # Direct EL expressions
             r'<c:out value=".*?"',  # JSTL out tag

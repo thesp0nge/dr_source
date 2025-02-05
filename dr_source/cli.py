@@ -56,7 +56,6 @@ def main(project_path, output, lang, vulnerabilities, stdout):
             for extension in DRSourceAnalyzer.KNOWN_EXTENSIONS
             if extension in lang
         }
-    print(DRSourceAnalyzer.KNOWN_EXTENSIONS)
 
     # Filter vulnerability types if specified
     if vulnerabilities:
