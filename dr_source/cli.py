@@ -19,6 +19,13 @@ def get_version():
     "--output", "-o", default="drsource_report.json", help="Output report file"
 )
 @click.option(
+    "--lang",
+    "-L",
+    multiple=True,
+    type=click.Choice(["java", "jsp"]),
+    help="Choose the file type to scan",
+)
+@click.option(
     "--vulnerabilities",
     "-v",
     multiple=True,
@@ -38,20 +45,29 @@ def get_version():
     "--stdout", is_flag=True, default=False, help="Print vulnerabilities to stdout"
 )
 @click.version_option(version=get_version(), prog_name="dr_source")
-def main(project_path, output, vulnerabilities, stdout):
+def main(project_path, output, lang, vulnerabilities, stdout):
     """DRSource: Java and JSP Vulnerability Scanner"""
     analyzer = DRSourceAnalyzer(project_path)
 
+    if lang:
+        # Filter source file extension to analyze
+        DRSourceAnalyzer.KNOWN_EXTENSIONS = {
+            extension
+            for extension in DRSourceAnalyzer.KNOWN_EXTENSIONS
+            if extension in lang
+        }
+    print(DRSourceAnalyzer.KNOWN_EXTENSIONS)
+
     # Filter vulnerability types if specified
     if vulnerabilities:
-        VulnerabilityDetector.VULNERABILITY_PATTERNS = {
+        VulnerabilityDetector.RE_VULNERABILITY_PATTERNS = {
             vuln: patterns
-            for vuln, patterns in VulnerabilityDetector.VULNERABILITY_PATTERNS.items()
+            for vuln, patterns in VulnerabilityDetector.RE_VULNERABILITY_PATTERNS.items()
             if vuln in vulnerabilities
         }
 
     # Get project files with progress bar
-    project_files = analyzer.find_project_files()
+    project_files = analyzer.find_project_files(lang)
 
     all_vulnerabilities = []
     with tqdm(total=len(project_files), desc="Analyzing Files") as pbar:
@@ -62,11 +78,11 @@ def main(project_path, output, vulnerabilities, stdout):
                 if stdout:
                     for vuln in file_vulnerabilities:
                         click.echo(f"Vulnerability in {file_path}:")
-                        click.echo(f"  Type: {vuln['type']}")
-                        click.echo(f"  Line: {vuln['line_number']}")
-                        click.echo(f"  Description: {vuln['description']}")
-                        click.echo(f"  Severity: {vuln['severity']}")
-                        click.echo(f"  Snippet: {vuln.get('match', 'N/A')}")
+                        click.echo(f"  Type: {vuln.type}")
+                        click.echo(f"  Line: {vuln.line}")
+                        click.echo(f"  Description: {vuln.description}")
+                        click.echo(f"  Severity: {vuln.severity}")
+                        click.echo(f"  Snippet: {vuln.match}")
                         click.echo("-" * 50)
                 analyzer._store_vulnerabilities(file_path, file_vulnerabilities)
                 all_vulnerabilities.extend(file_vulnerabilities)

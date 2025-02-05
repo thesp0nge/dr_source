@@ -134,6 +134,11 @@ class VulnerabilityDetector:
 
 
 class DRSourceAnalyzer:
+    KNOWN_EXTENSIONS = {
+        "jsp",
+        "java",
+    }
+
     def __init__(self, project_path: str):
         # Generate database name from project path
         project_name = os.path.basename(os.path.normpath(project_path))
@@ -155,6 +160,7 @@ class DRSourceAnalyzer:
 
     def _init_database(self):
         conn = sqlite3.connect(self.db_path)
+        self.logger.error("HERE" + self.db_path)
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vulnerabilities (
@@ -172,15 +178,18 @@ class DRSourceAnalyzer:
         conn.commit()
         conn.close()
 
-    def find_project_files(self) -> List[Tuple[str, str]]:
+    def find_project_files(self, lang: str) -> List[Tuple[str, str]]:
         """Find Java and JSP files recursively"""
         files = []
         for root, _, filenames in os.walk(self.project_path):
             for filename in filenames:
-                if filename.endswith((".java", ".jsp")):
+                if filename.split(".")[-1] in DRSourceAnalyzer.KNOWN_EXTENSIONS:
                     files.append(
                         (os.path.join(root, filename), filename.split(".")[-1])
                     )
+                    # files.append(os.path.join(root, filename))
+                # if filename.endswith(DRSourceAnalyzer.KNOWN_EXTENSIONS):
+
         return files
 
     def analyze_file(self, file_path: str, file_type: str) -> List[Vulnerability]:
