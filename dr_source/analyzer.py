@@ -179,17 +179,23 @@ class DRSourceAnalyzer:
         conn.commit()
         conn.close()
 
-    def find_project_files(self, lang: str) -> List[Tuple[str, str]]:
+    def find_project_files(
+        self, lang: str, exclude_test: bool
+    ) -> List[Tuple[str, str]]:
         """Find Java and JSP files recursively"""
         files = []
         for root, _, filenames in os.walk(self.project_path):
             for filename in filenames:
-                if filename.split(".")[-1] in DRSourceAnalyzer.KNOWN_EXTENSIONS:
-                    files.append(
-                        (os.path.join(root, filename), filename.split(".")[-1])
-                    )
-                    # files.append(os.path.join(root, filename))
-                # if filename.endswith(DRSourceAnalyzer.KNOWN_EXTENSIONS):
+                file_extension = filename.split(".")[-1]
+                file_path = os.path.join(root, filename)
+
+                if exclude_test and (
+                    "test" in filename.lower() or "test" in root.lower()
+                ):
+                    continue
+
+                if file_extension in DRSourceAnalyzer.KNOWN_EXTENSIONS:
+                    files.append((file_path, file_extension))
 
         return files
 

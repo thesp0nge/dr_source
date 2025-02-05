@@ -44,8 +44,15 @@ def get_version():
 @click.option(
     "--stdout", is_flag=True, default=False, help="Print vulnerabilities to stdout"
 )
+@click.option(
+    "--exclude-test",
+    "-T",
+    is_flag=True,
+    default=False,
+    help="Exclude test files from analysis",
+)
 @click.version_option(version=get_version(), prog_name="dr_source")
-def main(project_path, output, lang, vulnerabilities, stdout):
+def main(project_path, output, lang, vulnerabilities, stdout, exclude_test):
     """DRSource: Java and JSP Vulnerability Scanner"""
     analyzer = DRSourceAnalyzer(project_path)
 
@@ -66,7 +73,7 @@ def main(project_path, output, lang, vulnerabilities, stdout):
         }
 
     # Get project files with progress bar
-    project_files = analyzer.find_project_files(lang)
+    project_files = analyzer.find_project_files(lang, exclude_test)
 
     all_vulnerabilities = []
     with tqdm(total=len(project_files), desc="Analyzing Files") as pbar:
