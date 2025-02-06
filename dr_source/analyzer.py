@@ -1,7 +1,6 @@
 import os
 import re
 import sqlite3
-import json
 import logging
 import javalang
 from bs4 import BeautifulSoup
@@ -160,7 +159,6 @@ class DRSourceAnalyzer:
 
     def _init_database(self):
         conn = sqlite3.connect(self.db_path)
-        self.logger.error("HERE" + self.db_path)
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vulnerabilities (
@@ -321,4 +319,4 @@ class DRSourceAnalyzer:
             "vulnerability_types": dict(vulnerability_types),
             "severity_distribution": dict(severity_distribution),
         }
-        return json.dumps(report_data, indent=2)
+        return report_data

@@ -10,7 +10,7 @@ def get_version():
     try:
         return pkg_resources.get_distribution("dr_source").version
     except pkg_resources.DistributionNotFound:
-        return "0.1.0"  # Default version if not installed
+        return "unknown"  # Default version if not installed
 
 
 @click.command()
