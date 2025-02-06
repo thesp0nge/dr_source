@@ -97,7 +97,7 @@ def main(project_path, output, lang, vulnerabilities, stdout, exclude_test):
 
     click.echo(f"Found {len(all_vulnerabilities)} potential vulnerabilities")
 
-    report = analyzer.generate_report()
+    report = analyzer.generate_report(all_vulnerabilities)
     with open(output, "w") as f:
         json.dump(report, f, indent=2)
 
