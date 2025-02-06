@@ -84,7 +84,7 @@ class VulnerabilityDetector:
         "PATH_TRAVERSAL": [
             r"(new File|FileInputStream)\(.*user.*input.*\)",
             r"\.getResourceAsStream\(.*\+.*\)",
-            r"\.\./|\.\\",  # Path traversal characters
+            r"(?:https?://[^/\s]+|(?:GET|POST|PUT|DELETE|PATCH|OPTIONS)\s+)[^\s]*?(?:\.\./|\.\\)[^\s]*",
         ],
         "DESERIALIZATION": [
             r"ObjectInputStream\.readObject\(\)",
