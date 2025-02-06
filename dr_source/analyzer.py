@@ -3,11 +3,11 @@ import re
 import sqlite3
 import json
 import logging
-import click
 import javalang
 from bs4 import BeautifulSoup
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 from .vulnerability import Vulnerability
+from collections import Counter
 
 
 class VulnerabilityDetector:
@@ -67,7 +67,6 @@ class VulnerabilityDetector:
     RE_VULNERABILITY_PATTERNS = {
         "XSS": [
             # Java Patterns
-            # r"(response\.getWriter\(\)\.print|out\.println)\(.*\)",
             r"(response\\.getWriter\\(\\)\\.print|out\\.println)\\(\\s*(?!\"[^\"]*\"\\s*\\)$).*",
             # JSP Patterns
             r"\$\{.*?\}",  # Direct EL expressions
@@ -312,24 +311,14 @@ class DRSourceAnalyzer:
         conn.commit()
         conn.close()
 
-    def generate_report(self) -> Dict:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+    def generate_report(self, vulnerabilities: List[Vulnerability]) -> Dict:
+        total_vulnerabilities = len(vulnerabilities)
+        vulnerability_types = Counter(v.type for v in vulnerabilities)
+        severity_distribution = Counter(v.severity for v in vulnerabilities)
 
-        cursor.execute(
-            "SELECT vulnerability_type, COUNT(*) FROM vulnerabilities GROUP BY vulnerability_type"
-        )
-        type_distribution = dict(cursor.fetchall())
-
-        cursor.execute(
-            "SELECT severity, COUNT(*) FROM vulnerabilities GROUP BY severity"
-        )
-        severity_distribution = dict(cursor.fetchall())
-
-        conn.close()
-
-        return {
-            "total_vulnerabilities": sum(type_distribution.values()),
-            "vulnerability_types": type_distribution,
-            "severity_distribution": severity_distribution,
+        report_data = {
+            "total_vulnerabilities": total_vulnerabilities,
+            "vulnerability_types": dict(vulnerability_types),
+            "severity_distribution": dict(severity_distribution),
         }
+        return json.dumps(report_data, indent=2)
