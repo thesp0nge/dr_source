@@ -66,6 +66,14 @@ def get_project_name(target_path):
     help="Exclude test files from analysis",
 )
 @click.version_option(version=get_version(), prog_name="dr_source")
+@click.option(
+    "--compare",
+    type=int,
+    help="Compare last scan with a previous saved in the database.",
+)
+@click.option(
+    "--export", type=click.Choice(["json", "html"]), help="Exporet last scan results."
+)
 def main(project_path, output, lang, vulnerabilities, stdout, exclude_test, history):
     """DRSource: Java and JSP Vulnerability Scanner"""
     project_name = get_project_name(project_path)
@@ -75,17 +83,30 @@ def main(project_path, output, lang, vulnerabilities, stdout, exclude_test, hist
     # Se l'opzione --history è attivata, mostriamo lo storico e usciamo
     if history:
         click.echo(f"\n📌 Storico delle scansioni per '{project_name}':")
-        history_records = db.get_scan_history()
+        for scan in db.get_scan_history():
+            click.echo(f"[{scan[1]}] ID {scan[0]} | Vulnerabilità trovate: {scan[2]}")
+        return
 
-        if not history_records:
-            click.echo("🔍 Nessuna scansione registrata per questo progetto.")
-        else:
-            for scan in history_records:
-                click.echo(
-                    f"[{scan[1]}] Scansione ID {scan[0]} | Vulnerabilità trovate: {scan[2]}"
-                )
+    if compare:
+        latest_scan_id = db.get_latest_scan_id()
+        if not latest_scan_id:
+            click.echo("❌ Nessuna scansione registrata.")
+            return
 
-        return  # Uscita dopo aver mostrato lo storico
+        click.echo(f"🔍 Confronto tra scansione {compare} e {latest_scan_id}...")
+        comparison = db.compare_scans(compare, latest_scan_id)
+
+        click.echo(f"📌 Nuove vulnerabilità: {len(comparison['new'])}")
+        click.echo(f"✅ Risolte: {len(comparison['resolved'])}")
+        click.echo(f"⚠️ Persistenti: {len(comparison['persistent'])}")
+
+        for vuln in comparison["new"]:
+            click.echo(f"🆕 {vuln}")
+
+        for vuln in comparison["resolved"]:
+            click.echo(f"✅ {vuln}")
+
+        return
 
     if lang:
         # Filter source file extension to analyze
@@ -143,6 +164,39 @@ def main(project_path, output, lang, vulnerabilities, stdout, exclude_test, hist
         json.dump(report, f, indent=2)
 
     click.echo(f"Report saved to {output}")
+
+    if export:
+        export_results(project_name, scan_id, export)
+
+
+def export_results(project_name, scan_id, format):
+    db = ScanDatabase(project_name)
+    results = db.get_vulnerabilities_by_scan(scan_id)
+
+    if format == "json":
+        import json
+
+        with open(f"{project_name}_scan_{scan_id}.json", "w") as f:
+            json.dump(
+                [
+                    {"file": v[0], "type": v[1], "source": v[2], "sink": v[3]}
+                    for v in results
+                ],
+                f,
+                indent=4,
+            )
+        click.echo(f"📄 Risultati esportati in {project_name}_scan_{scan_id}.json")
+
+    elif format == "html":
+        with open(f"{project_name}_scan_{scan_id}.html", "w") as f:
+            f.write("<html><head><title>Report Scansione</title></head><body>")
+            f.write(f"<h1>Report Scansione {scan_id}</h1><ul>")
+            for vuln in results:
+                f.write(
+                    f"<li><b>{vuln[1]}</b> in <i>{vuln[0]}</i> (Source: {vuln[2]} → Sink: {vuln[3]})</li>"
+                )
+            f.write("</ul></body></html>")
+        click.echo(f"📄 Risultati esportati in {project_name}_scan_{scan_id}.html")
 
 
 if __name__ == "__main__":
