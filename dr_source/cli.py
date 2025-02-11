@@ -107,8 +107,10 @@ def main(project_path, output, lang, vulnerabilities, stdout, exclude_test, hist
     # Get project files with progress bar
     project_files = analyzer.find_project_files(lang, exclude_test)
 
+    start_time = time.time()
     scan_id = db.start_scan()
     all_vulnerabilities = []
+
     with tqdm(total=len(project_files), desc="Analyzing Files") as pbar:
         for file_path, file_type in project_files:
             file_vulnerabilities = analyzer.analyze_file(file_path, file_type)
@@ -128,8 +130,12 @@ def main(project_path, output, lang, vulnerabilities, stdout, exclude_test, hist
             pbar.update(1)
     for vuln in file_vulnerabilities:
         db.save_vulnerability(scan_id, *vuln)
+    elapsed_time = time.time() - start_time
 
-    db.update_scan_count(scan_id)
+    db.update_scan_summary(
+        scan_id, len(vulnerabilities), num_files_analyzed=10, scan_duration=elapsed_time
+    )
+
     click.echo(f"Found {len(all_vulnerabilities)} potential vulnerabilities")
 
     report = analyzer.generate_report(all_vulnerabilities)
