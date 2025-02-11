@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="drsource",
-    version="0.16.0",
+    version="0.24.0",
     packages=find_packages(),
     install_requires=["click", "javalang", "beautifulsoup4", "scikit-learn", "PyYAML"],
     entry_points={

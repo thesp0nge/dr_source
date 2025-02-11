@@ -4,3 +4,4 @@ beautifulsoup4
 scikit-learn
 PyYAML
 tqdm
+networkx
