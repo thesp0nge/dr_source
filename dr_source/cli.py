@@ -6,6 +6,8 @@ from .analyzer import DRSourceAnalyzer
 from .re_vulnerability_detector import ReVulnerabilityDetector
 from .scan_database import ScanDatabase
 from tqdm import tqdm
+import uuid
+from datetime import datetime
 
 
 def get_version():
@@ -174,8 +176,6 @@ def export_results(project_name, scan_id, format):
     results = db.get_vulnerabilities_by_scan(scan_id)
 
     if format == "json":
-        import json
-
         with open(f"{project_name}_scan_{scan_id}.json", "w") as f:
             json.dump(
                 [
@@ -197,6 +197,78 @@ def export_results(project_name, scan_id, format):
                 )
             f.write("</ul></body></html>")
         click.echo(f"📄 Risultati esportati in {project_name}_scan_{scan_id}.html")
+
+    elif format == "sarif":
+        sarif_output = generate_sarif(results, project_name, scan_id)
+        sarif_file = f"{project_name}_scan_{scan_id}.sarif"
+        with open(sarif_file, "w") as f:
+            json.dump(sarif_output, f, indent=4)
+        click.echo(f"📄 Risultati esportati in {sarif_file}")
+
+
+def generate_sarif(results, project_name, scan_id):
+    """Genera un report SARIF per le vulnerabilità rilevate"""
+    run_uuid = str(uuid.uuid4())
+
+    sarif_results = []
+    for vuln in results:
+        file_path, vuln_type, source, sink = vuln
+
+        sarif_results.append(
+            {
+                "ruleId": vuln_type,
+                "level": "error",
+                "message": {"text": f"Possible {vuln_type} vulnerability detected."},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": file_path,
+                                "uriBaseId": "%SRCROOT%",
+                            },
+                            "region": {
+                                "startLine": 1
+                            },  # Se possiamo ottenere la riga esatta, aggiorniamo questo valore
+                        }
+                    }
+                ],
+                "properties": {"source": source, "sink": sink},
+            }
+        )
+
+    sarif_report = {
+        "version": "2.1.0",
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "dr_source",
+                        "version": "1.0",
+                        "informationUri": "https://github.com/thesp0nge/dr_source",
+                        "rules": [
+                            {
+                                "id": vuln[1],
+                                "name": vuln[1],
+                                "shortDescription": {"text": vuln[1]},
+                            }
+                            for vuln in results
+                        ],
+                    }
+                },
+                "invocations": [
+                    {
+                        "executionSuccessful": True,
+                        "startTimeUtc": datetime.utcnow().isoformat() + "Z",
+                        "endTimeUtc": datetime.utcnow().isoformat() + "Z",
+                    }
+                ],
+                "results": sarif_results,
+            }
+        ],
+    }
+
+    return sarif_report
 
 
 if __name__ == "__main__":
