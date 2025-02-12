@@ -1,5 +1,27 @@
 #!/usr/bin/env python3
-from dr_source.cli import main
+"""
+DRSource - Main executable script
 
-if __name__ == '__main__':
-    main()
+Usage:
+    dr_source [OPTIONS] TARGET_PATH
+
+This script launches the DRSource CLI.
+"""
+
+import os
+import sys
+
+# Add the project root to the sys.path so that "dr_source" can be imported.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, ".."))
+sys.path.insert(0, project_root)
+
+try:
+    from dr_source.cli import main
+except ModuleNotFoundError as e:
+    sys.exit(
+        f"Error: {e}\nMake sure the package is installed or that your PYTHONPATH includes the project root."
+    )
+
+if __name__ == "__main__":
+    sys.exit(main())

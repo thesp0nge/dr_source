@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="drsource",
-    version="0.24.0",
+    name="dr_source",
+    version="0.51.0",
     packages=find_packages(),
     install_requires=["click", "javalang", "beautifulsoup4", "scikit-learn", "PyYAML"],
     entry_points={
@@ -10,6 +10,8 @@ setup(
             "dr_source=dr_source.cli:main",
         ],
     },
+    include_package_data=True,
+    zip_safe=False,
     scripts=["bin/dr_source"],
     author="Paolo Perego",
     description="Java and JSP Vulnerability Static Analyzer",

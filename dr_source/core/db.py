@@ -1,0 +1,155 @@
+# dr_source/core/db.py
+
+import sqlite3
+import os
+import re
+from datetime import datetime
+
+
+class ScanDatabase:
+    def __init__(self, project_name):
+        # Use a default name if the provided project name is "." or similar.
+        if project_name in {".", "..", ""}:
+            project_name = "default_project"
+        self.project_name = self._sanitize_project_name(project_name)
+        self.db_path = os.path.join("databases", f"{self.project_name}.db")
+        os.makedirs("databases", exist_ok=True)
+        self._create_tables()
+
+    def _sanitize_project_name(self, name):
+        """Sanitize the project name to be safe for file system usage."""
+        return re.sub(r"[^\w\-_]", "_", name)
+
+    def _create_tables(self):
+        """Creates the 'scans' and 'vulnerabilities' tables if they do not exist."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS scans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                num_vulnerabilities INTEGER DEFAULT 0,
+                num_files_analyzed INTEGER DEFAULT 0,
+                scan_duration REAL DEFAULT 0
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS vulnerabilities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scan_id INTEGER NOT NULL,
+                file TEXT NOT NULL,
+                vuln_type TEXT NOT NULL,
+                details TEXT,
+                line INTEGER,
+                FOREIGN KEY(scan_id) REFERENCES scans(id)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+    def initialize(self):
+        """
+        Drops the existing tables and recreates them from scratch.
+        This method can be called by the CLI when using the --init-db option.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("DROP TABLE IF EXISTS vulnerabilities")
+        cursor.execute("DROP TABLE IF EXISTS scans")
+        conn.commit()
+        conn.close()
+        self._create_tables()
+
+    def start_scan(self):
+        """Inserts a new scan record and returns its scan_id."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        timestamp = datetime.now().isoformat()
+        cursor.execute("INSERT INTO scans (timestamp) VALUES (?)", (timestamp,))
+        conn.commit()
+        scan_id = cursor.lastrowid
+        conn.close()
+        return scan_id
+
+    def store_vulnerability(self, scan_id, vuln):
+        """
+        Stores a vulnerability record associated with a scan.
+        The vuln parameter should be a dictionary with keys:
+        'file', 'vuln_type', 'match' (vulnerability details), and 'line'.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO vulnerabilities (scan_id, file, vuln_type, details, line)
+            VALUES (?, ?, ?, ?, ?)
+        """,
+            (scan_id, vuln["file"], vuln["vuln_type"], vuln["match"], vuln["line"]),
+        )
+        conn.commit()
+        conn.close()
+
+    def update_scan_summary(
+        self, scan_id, num_vulnerabilities, num_files_analyzed, scan_duration
+    ):
+        """Updates the scan record with the number of vulnerabilities, files analyzed, and scan duration."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE scans
+            SET num_vulnerabilities = ?, num_files_analyzed = ?, scan_duration = ?
+            WHERE id = ?
+        """,
+            (num_vulnerabilities, num_files_analyzed, scan_duration, scan_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_scan_history(self):
+        """Returns a list of scan records (id, timestamp, num_vulnerabilities) ordered by most recent."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, timestamp, num_vulnerabilities FROM scans ORDER BY id DESC"
+        )
+        records = cursor.fetchall()
+        conn.close()
+        return records
+
+    def get_latest_scan_id(self):
+        """Returns the id of the latest scan record, or None if no scans exist."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM scans ORDER BY id DESC LIMIT 1")
+        record = cursor.fetchone()
+        conn.close()
+        return record[0] if record else None
+
+    def compare_scans(self, old_scan_id, new_scan_id):
+        """Compares two scans and returns a dictionary with keys 'new', 'resolved', and 'persistent' vulnerabilities."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT file, vuln_type, details, line FROM vulnerabilities WHERE scan_id=?
+        """,
+            (old_scan_id,),
+        )
+        old_vulns = set(cursor.fetchall())
+        cursor.execute(
+            """
+            SELECT file, vuln_type, details, line FROM vulnerabilities WHERE scan_id=?
+        """,
+            (new_scan_id,),
+        )
+        new_vulns = set(cursor.fetchall())
+        conn.close()
+        new_issues = new_vulns - old_vulns
+        resolved_issues = old_vulns - new_vulns
+        persistent_issues = new_vulns & old_vulns
+        return {
+            "new": list(new_issues),
+            "resolved": list(resolved_issues),
+            "persistent": list(persistent_issues),
+        }
