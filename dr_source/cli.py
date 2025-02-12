@@ -8,6 +8,7 @@ from .scan_database import ScanDatabase
 from tqdm import tqdm
 import uuid
 from datetime import datetime
+import time
 
 
 def get_version():
@@ -76,7 +77,17 @@ def get_project_name(target_path):
 @click.option(
     "--export", type=click.Choice(["json", "html"]), help="Exporet last scan results."
 )
-def main(project_path, output, lang, vulnerabilities, stdout, exclude_test, history):
+def main(
+    project_path,
+    output,
+    lang,
+    vulnerabilities,
+    stdout,
+    exclude_test,
+    history,
+    compare,
+    export,
+):
     """DRSource: Java and JSP Vulnerability Scanner"""
     project_name = get_project_name(project_path)
     # Inizializziamo il database delle scansioni

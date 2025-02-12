@@ -1,5 +1,22 @@
 import javalang
 import networkx as nx
+from typing import List
+from .vulnerability import Vulnerability
+from .taint_analyzer import TaintAnalyzer
+
+
+class VariableAssignment:
+    def __init__(self, left, right, line):
+        self.left = left  # Nome della variabile assegnata
+        self.right = right  # Espressione assegnata
+        self.line = line  # Numero di riga
+
+
+class MethodCall:
+    def __init__(self, method, arguments, line):
+        self.method = method  # Nome del metodo chiamato
+        self.arguments = arguments  # Lista di argomenti passati
+        self.line = line  # Numero di riga
 
 
 class JavaAstDetector:
@@ -7,23 +24,40 @@ class JavaAstDetector:
         self.code = code
         self.ast = javalang.parse.parse(code)
         self.data_flow_graph = nx.DiGraph()
+        self.ast_nodes = self.parse_java_code(self.ast)
 
         # 🎯 SOURCES: Input non fidati
         self.sources = {
-            "USER_INPUT": {
+            "SQL_INJECTION": [
                 "request.getParameter",
                 "request.getQueryString",
                 "request.getCookies",
+                "session.getAttribute",
+                "System.getProperty",
+            ],
+            "XSS": [
+                "request.getParameter",
+                "request.getQueryString",
                 "request.getHeader",
-                "request.getHeaders",
-                "request.getInputStream",
-                "request.getReader",
-                "request.getPart",
-                "request.getParts",
-                "scanner.nextLine",
-                "BufferedReader.readLine",
-                "System.console.readLine",
-            }
+                "request.getCookies",
+                "session.getAttribute",
+            ],
+            "PATH_TRAVERSAL": [
+                "request.getParameter",
+                "System.getenv",
+                "request.getQueryString",
+                "request.getCookies",
+            ],
+            "COMMAND_INJECTION": [
+                "request.getParameter",
+                "request.getQueryString",
+                "System.getenv",
+                "System.getProperty",
+            ],
+            "SERIALIZATION_ISSUES": [
+                "ObjectInputStream.readObject",
+                "XMLDecoder.readObject",
+            ],
         }
 
         # ⚠️ SINKS: Metodi vulnerabili a specifici attacchi
@@ -68,6 +102,61 @@ class JavaAstDetector:
 
         # 🔥 Soluzione: Prima raccogliamo TUTTE le variabili esistenti
         self.variables = set()
+
+    def parse_java_code(self, tree):
+        nodes = []
+
+        for path, node in tree:
+            if isinstance(node, javalang.tree.Assignment):
+                # Estrarre la variabile assegnata e il valore
+                left = node.expressionl if hasattr(node, "expressionl") else None
+                right = node.value if hasattr(node, "value") else None
+                line = node.position.line if node.position else -1
+                if left and right:
+                    nodes.append(VariableAssignment(left, right, node.position.line))
+
+            elif isinstance(node, javalang.tree.MethodInvocation):
+                # Estrarre nome del metodo e parametri
+                method = node.member
+                arguments = [arg for arg in node.arguments]
+                line = node.position.line if node.position else -1
+                nodes.append(MethodCall(method, arguments, node.position.line))
+
+        return nodes
+
+    def analyze_ast(self, filename: str) -> List[Vulnerability]:
+        taint_analyzer = TaintAnalyzer()
+        vulnerabilities = []
+
+        for node in self.ast_nodes:
+            if isinstance(node, VariableAssignment):
+                taint_analyzer.analyze_assignment(node.left, node.right)
+
+            elif isinstance(node, MethodCall):
+                # Controlliamo se è una source
+                for vuln_type, sources in SOURCES.items():
+                    if node.method in sources:
+                        taint_analyzer.mark_tainted(node.arguments[0], node.method)
+
+                # Controlliamo se è un sink
+                for vuln_type, sinks in SINKS.items():
+                    if node.method in sinks:
+                        result = taint_analyzer.analyze_sink(
+                            node.method, node.arguments[0]
+                        )
+                        if result:
+                            vulnerabilities.append(
+                                {
+                                    "file": filename,
+                                    "type": vuln_type,
+                                    "source": result["source"],
+                                    "sink": result["sink"],
+                                    "variable": result["variable"],
+                                    "line": node.line,
+                                }
+                            )
+
+        return vulnerabilities
 
     def normalize_method_call(self, node):
         """Normalizza una chiamata a metodo per evitare variazioni nei parametri."""

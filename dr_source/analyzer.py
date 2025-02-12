@@ -63,9 +63,8 @@ class DRSourceAnalyzer:
                 vulnerabilities = ReVulnerabilityDetector.detect_vulnerabilities(
                     content, file_path
                 )
-                java_ast_detector = JavaAstDetector(content)
-                issues.append(java_ast_detector.detect_vulnerabilities())
-                print("here")
+                # java_ast_detector = JavaAstDetector(content)
+                # issues.append(java_ast_detector.analyze_ast(file_path))
 
             elif file_type == "jsp":
                 vulnerabilities = self._analyze_jsp(content, file_path)
