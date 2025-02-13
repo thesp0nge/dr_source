@@ -1,4 +1,4 @@
-# dr_source/cli.py
+#!/usr/bin/env python3
 import click
 import time
 import os
@@ -8,7 +8,6 @@ from dr_source.core.scanner import Scanner
 from dr_source.core.db import ScanDatabase
 from dr_source.logging import setup_logging
 
-
 # Use importlib.metadata to get version information from the installed package
 try:
     from importlib.metadata import version as get_version
@@ -16,13 +15,12 @@ except ImportError:
     from importlib_metadata import version as get_version
 
 
-@click.command()
-@click.argument("target_path", type=click.Path(exists=True))
+@click.command(context_settings=dict(ignore_unknown_options=True))
+@click.argument("target_path", required=False, type=click.Path(exists=True))
+@click.option("--init-db", is_flag=True, help="Initialize the database from scratch.")
 @click.option("--history", is_flag=True, help="Show the scan history for this project.")
 @click.option(
-    "--compare",
-    type=int,
-    help="Compare the latest scan with the previous scan specified by ID.",
+    "--compare", type=int, help="Compare the latest scan with the scan specified by ID."
 )
 @click.option(
     "--export",
@@ -36,19 +34,28 @@ except ImportError:
     help="Output file for the exported report (if not specified, a default name is used).",
 )
 @click.option("--debug", is_flag=True, help="Enable debug logging.")
-@click.option("--verbose", is_flag=True, help="Show detailed output during comparison.")
-@click.option("--init-db", is_flag=True, help="Initialize the database from scratch.")
-@click.version_option(get_version("dr_source"), prog_name="dr_source")
-def main(target_path, history, compare, export, verbose, output, debug, init_db):
+@click.option(
+    "--version", "show_version", is_flag=True, help="Show DRSource version and exit."
+)
+def main(
+    target_path, init_db, history, compare, export, verbose, output, debug, show_version
+):
     """
     DRSource - A static analysis tool for detecting vulnerabilities in Java/JSP projects.
 
     TARGET_PATH is the path of the codebase to analyze.
     """
+    if show_version:
+        try:
+            pkg_version = get_version("dr_source")
+        except Exception:
+            pkg_version = "unknown"
+        click.echo(f"DRSource version {pkg_version}")
+        return
 
     setup_logging(debug=debug)
 
-    # If none of the options that do not require a target are used, enforce target_path
+    # Enforce target_path if not provided for non--version operations
     if not target_path:
         ctx = click.get_current_context()
         ctx.fail("Missing argument 'TARGET_PATH'.")
@@ -106,16 +113,8 @@ def main(target_path, history, compare, export, verbose, output, debug, init_db)
     codebase.load_files()
 
     scanner = Scanner(codebase)
-    results = []
-
-    # Use click.progressbar to show scanning progress across all files
-    with click.progressbar(codebase.files, label="Scanning files") as bar:
-        for file_obj in bar:
-            # For each file, run all detectors and aggregate results
-            for detector in scanner.detectors:
-                file_results = detector.detect(file_obj)
-                if file_results:
-                    results.extend(file_results)
+    # Use a progress bar while scanning files in parallel (implemented in scanner.scan)
+    results = scanner.scan()
 
     scan_duration = time.time() - start_time
     num_files = len(codebase.files)
@@ -126,9 +125,7 @@ def main(target_path, history, compare, export, verbose, output, debug, init_db)
     )
 
     scan_id = db.start_scan()
-    for res in results:
-        db.store_vulnerability(scan_id, res)  # Updated: use store_vulnerability
-
+    db.store_vulnerabilities(scan_id, results)
     db.update_scan_summary(scan_id, num_vulns, num_files, scan_duration)
 
     if export:
@@ -155,5 +152,4 @@ def main(target_path, history, compare, export, verbose, output, debug, init_db)
 
 
 if __name__ == "__main__":
-    setup_logging()  # Default logging configuration
     main()
