@@ -25,7 +25,7 @@ class CommandInjectionDetector(BaseDetector):
         for regex in self.REGEX_PATTERNS:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.info(
+                logger.debug(
                     "Command Injection vulnerability found in '%s' at line %s: %s",
                     file_object.path,
                     line,

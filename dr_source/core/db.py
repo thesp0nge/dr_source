@@ -8,7 +8,7 @@ from datetime import datetime
 
 class ScanDatabase:
     def __init__(self, project_name):
-        # Use a default name if the provided project name is "." or similar.
+        # Use a default name if the project name is ".", "..", or empty.
         if project_name in {".", "..", ""}:
             project_name = "default_project"
         self.project_name = self._sanitize_project_name(project_name)
@@ -50,7 +50,7 @@ class ScanDatabase:
     def initialize(self):
         """
         Drops the existing tables and recreates them from scratch.
-        This method can be called by the CLI when using the --init-db option.
+        This method can be called via the --init-db option.
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -74,37 +74,49 @@ class ScanDatabase:
     def store_vulnerability(self, scan_id, vuln):
         """
         Stores a vulnerability record associated with a scan.
-        The vuln parameter should be a dictionary with keys:
+        The 'vuln' parameter is a dictionary with keys:
         'file', 'vuln_type', 'match' (vulnerability details), and 'line'.
         """
         conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO vulnerabilities (scan_id, file, vuln_type, details, line)
-            VALUES (?, ?, ?, ?, ?)
-        """,
-            (scan_id, vuln["file"], vuln["vuln_type"], vuln["match"], vuln["line"]),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO vulnerabilities (scan_id, file, vuln_type, details, line)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (scan_id, vuln["file"], vuln["vuln_type"], vuln["match"], vuln["line"]),
+            )
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            if "no such column: details" in str(e):
+                raise sqlite3.OperationalError(
+                    "Database schema outdated: 'vulnerabilities' table is missing column 'details'. "
+                    "Please reinitialize the database using the --init-db option."
+                ) from e
+            else:
+                raise
+        finally:
+            conn.close()
 
     def update_scan_summary(
         self, scan_id, num_vulnerabilities, num_files_analyzed, scan_duration
     ):
         """Updates the scan record with the number of vulnerabilities, files analyzed, and scan duration."""
         conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            UPDATE scans
-            SET num_vulnerabilities = ?, num_files_analyzed = ?, scan_duration = ?
-            WHERE id = ?
-        """,
-            (num_vulnerabilities, num_files_analyzed, scan_duration, scan_id),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE scans
+                SET num_vulnerabilities = ?, num_files_analyzed = ?, scan_duration = ?
+                WHERE id = ?
+            """,
+                (num_vulnerabilities, num_files_analyzed, scan_duration, scan_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     def get_scan_history(self):
         """Returns a list of scan records (id, timestamp, num_vulnerabilities) ordered by most recent."""
@@ -127,7 +139,9 @@ class ScanDatabase:
         return record[0] if record else None
 
     def compare_scans(self, old_scan_id, new_scan_id):
-        """Compares two scans and returns a dictionary with keys 'new', 'resolved', and 'persistent' vulnerabilities."""
+        """
+        Compares two scans and returns a dictionary with keys 'new', 'resolved', and 'persistent' vulnerabilities.
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(

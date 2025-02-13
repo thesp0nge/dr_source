@@ -9,6 +9,13 @@ from dr_source.core.db import ScanDatabase
 from dr_source.logging import setup_logging
 
 
+# Use importlib.metadata to get version information from the installed package
+try:
+    from importlib.metadata import version as get_version
+except ImportError:
+    from importlib_metadata import version as get_version
+
+
 @click.command()
 @click.argument("target_path", type=click.Path(exists=True))
 @click.option("--history", is_flag=True, help="Show the scan history for this project.")
@@ -29,22 +36,23 @@ from dr_source.logging import setup_logging
     help="Output file for the exported report (if not specified, a default name is used).",
 )
 @click.option("--debug", is_flag=True, help="Enable debug logging.")
-@click.option("--version", is_flag=True, help="Show DRSource version and exit.")
 @click.option("--verbose", is_flag=True, help="Show detailed output during comparison.")
 @click.option("--init-db", is_flag=True, help="Initialize the database from scratch.")
-def main(
-    target_path, history, compare, export, verbose, output, debug, version, init_db
-):
+@click.version_option(get_version("dr_source"), prog_name="dr_source")
+def main(target_path, history, compare, export, verbose, output, debug, init_db):
     """
     DRSource - A static analysis tool for detecting vulnerabilities in Java/JSP projects.
 
     TARGET_PATH is the path of the codebase to analyze.
     """
-    if version:
-        click.echo(f"DRSource version {__version__}")
-        return
 
     setup_logging(debug=debug)
+
+    # If none of the options that do not require a target are used, enforce target_path
+    if not target_path:
+        ctx = click.get_current_context()
+        ctx.fail("Missing argument 'TARGET_PATH'.")
+
     project_name = os.path.basename(os.path.abspath(target_path))
     db = ScanDatabase(project_name)
 
@@ -98,7 +106,17 @@ def main(
     codebase.load_files()
 
     scanner = Scanner(codebase)
-    results = scanner.scan()
+    results = []
+
+    # Use click.progressbar to show scanning progress across all files
+    with click.progressbar(codebase.files, label="Scanning files") as bar:
+        for file_obj in bar:
+            # For each file, run all detectors and aggregate results
+            for detector in scanner.detectors:
+                file_results = detector.detect(file_obj)
+                if file_results:
+                    results.extend(file_results)
+
     scan_duration = time.time() - start_time
     num_files = len(codebase.files)
     num_vulns = len(results)
@@ -109,9 +127,8 @@ def main(
 
     scan_id = db.start_scan()
     for res in results:
-        db.save_vulnerability(
-            scan_id, res["file"], res["vuln_type"], res["match"], res["line"]
-        )
+        db.store_vulnerability(scan_id, res)  # Updated: use store_vulnerability
+
     db.update_scan_summary(scan_id, num_vulns, num_files, scan_duration)
 
     if export:
