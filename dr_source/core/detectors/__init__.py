@@ -9,6 +9,7 @@ from dr_source.core.detectors.ldap_injection import LDAPInjectionDetector
 from dr_source.core.detectors.xxe import XXEDetector
 from dr_source.core.detectors.ssrf import SSRFDetector
 from dr_source.core.detectors.crypto import CryptoDetector
+from dr_source.core.detectors.hardcoded_credentials import HardcodedCredentialsDetector
 
 DETECTORS = [
     SQLInjectionDetector,
@@ -20,6 +21,7 @@ DETECTORS = [
     XXEDetector,
     SSRFDetector,
     CryptoDetector,  # New detector added here
+    HardcodedCredentialsDetector,
 ]
 
 
