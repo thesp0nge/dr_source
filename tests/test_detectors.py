@@ -10,6 +10,8 @@ from dr_source.core.detectors.serialization import SerializationDetector
 from dr_source.core.detectors.ldap_injection import LDAPInjectionDetector
 from dr_source.core.detectors.xxe import XXEDetector
 from dr_source.core.detectors.ssrf import SSRFDetector
+from dr_source.core.codebase import FileObject
+from dr_source.core.detectors.crypto import CryptoDetector
 
 # Sample content for tests:
 SQLI_SAMPLE = 'String query = "SELECT * FROM users WHERE name = \'" + request.getParameter("username") + "\'";'
@@ -101,3 +103,43 @@ def test_ssrf_detector():
     for res in results:
         assert "SSRF" in res["vuln_type"]
         assert res["line"] > 0
+
+
+def test_crypto_detector_md5():
+    sample = 'MessageDigest md = MessageDigest.getInstance("MD5");'
+    file_obj = FileObject("TestCrypto.java", sample)
+    detector = CryptoDetector()
+    results = detector.detect(file_obj)
+    assert results, "Crypto detector should flag MD5 usage"
+    for res in results:
+        assert "Unsafe Crypto/Hashing" in res["vuln_type"]
+        assert res["line"] > 0
+
+
+def test_crypto_detector_sha1():
+    sample = 'MessageDigest md = MessageDigest.getInstance("SHA-1");'
+    file_obj = FileObject("TestCrypto.java", sample)
+    detector = CryptoDetector()
+    results = detector.detect(file_obj)
+    assert results, "Crypto detector should flag SHA-1 usage"
+    for res in results:
+        assert "Unsafe Crypto/Hashing" in res["vuln_type"]
+
+
+def test_crypto_detector_cipher():
+    sample = 'Cipher c = Cipher.getInstance("DES");'
+    file_obj = FileObject("TestCrypto.java", sample)
+    detector = CryptoDetector()
+    results = detector.detect(file_obj)
+    assert results, "Crypto detector should flag DES usage"
+    for res in results:
+        assert "Unsafe Crypto/Hashing" in res["vuln_type"]
+
+
+def test_crypto_detector_no_issue():
+    # Use a secure algorithm that should not be flagged (e.g., SHA-256)
+    sample = 'MessageDigest md = MessageDigest.getInstance("SHA-256");'
+    file_obj = FileObject("TestCrypto.java", sample)
+    detector = CryptoDetector()
+    results = detector.detect(file_obj)
+    assert not results, "Crypto detector should not flag secure algorithms"
