@@ -1,4 +1,3 @@
-# dr_source/core/detectors/serialization.py
 import re
 import logging
 from dr_source.core.detectors.base import BaseDetector
@@ -6,26 +5,27 @@ from dr_source.core.detectors.base import BaseDetector
 logger = logging.getLogger(__name__)
 
 
-class SerializationDetector(BaseDetector):
-    # Updated regex: Allows for a constructor call with parentheses between the class name and ".readObject"
+class LDAPInjectionDetector(BaseDetector):
+    """
+    Detects potential LDAP injection vulnerabilities by checking for LDAP URLs
+    concatenated with unsanitized user input (e.g., request.getParameter).
+    """
+
     REGEX_PATTERNS = [
-        re.compile(
-            r"(?i)(ObjectInputStream|XMLDecoder)\s*\([^)]*\)\.readObject\s*\(",
-            re.DOTALL,
-        ),
-        re.compile(r"(?i)deserialize\s*\(.*\)", re.DOTALL),
+        re.compile(r"(?i)ldap://.*\+.*request\.getParameter", re.DOTALL),
+        re.compile(r"(?i)ldap://.*request\.getParameter\s*\(.*\)\s*\+", re.DOTALL),
     ]
 
     def detect(self, file_object):
         results = []
         logger.debug(
-            "Scanning file '%s' for Serialization vulnerabilities.", file_object.path
+            "Scanning file '%s' for LDAP Injection vulnerabilities.", file_object.path
         )
         for regex in self.REGEX_PATTERNS:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
                 logger.debug(
-                    "Serialization vulnerability found in '%s' at line %s: %s",
+                    "LDAP Injection vulnerability found in '%s' at line %s: %s",
                     file_object.path,
                     line,
                     match.group(),
@@ -33,7 +33,7 @@ class SerializationDetector(BaseDetector):
                 results.append(
                     {
                         "file": file_object.path,
-                        "vuln_type": "Serialization Issues",
+                        "vuln_type": "LDAP Injection",
                         "match": match.group(),
                         "line": line,
                     }
