@@ -1,12 +1,14 @@
 # dr_source/core/scanner.py
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import click
+import javalang
 from dr_source.core.detectors import DETECTORS
 
 
 class Scanner:
-    def __init__(self, codebase):
+    def __init__(self, codebase, ast_mode=False):
         self.codebase = codebase
+        self.ast_mode = ast_mode
         # Instantiate each detector once
         self.detectors = [detector() for detector in DETECTORS]
 
@@ -14,12 +16,10 @@ class Scanner:
         results = []
         files = self.codebase.files
         with ThreadPoolExecutor() as executor:
-            # Submit each file to be scanned in parallel
             future_to_file = {
                 executor.submit(self.scan_file, file_obj): file_obj
                 for file_obj in files
             }
-            # Create a progress bar with total number of files
             with click.progressbar(
                 length=len(future_to_file), label="Scanning files"
             ) as bar:
@@ -32,8 +32,19 @@ class Scanner:
 
     def scan_file(self, file_obj):
         file_results = []
+        ast_tree = None
+        if self.ast_mode and file_obj.path.endswith(".java"):
+            try:
+                ast_tree = javalang.parse.parse(file_obj.content)
+            except Exception as e:
+                ast_tree = None
         for detector in self.detectors:
-            res = detector.detect(file_obj)
-            if res:
-                file_results.extend(res)
+            if (
+                self.ast_mode
+                and hasattr(detector, "detect_ast_from_tree")
+                and ast_tree is not None
+            ):
+                file_results.extend(detector.detect_ast_from_tree(file_obj, ast_tree))
+            else:
+                file_results.extend(detector.detect(file_obj))
         return file_results

@@ -20,5 +20,5 @@ def test_scanner_integration():
     results = scanner.scan()
     # We expect at least one vulnerability from each detector type.
     vuln_types = {result["vuln_type"] for result in results}
-    assert "SQL Injection" in vuln_types
+    assert "SQL Injection (regex)" in vuln_types
     assert "XSS" in vuln_types

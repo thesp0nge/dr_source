@@ -37,8 +37,20 @@ except ImportError:
 @click.option(
     "--version", "show_version", is_flag=True, help="Show DRSource version and exit."
 )
+@click.option(
+    "--ast", is_flag=True, help="Enable AST-based detection (instead of regex-based)."
+)
 def main(
-    target_path, init_db, history, compare, export, verbose, output, debug, show_version
+    target_path,
+    init_db,
+    history,
+    compare,
+    export,
+    verbose,
+    output,
+    debug,
+    show_version,
+    ast,
 ):
     """
     DRSource - A static analysis tool for detecting vulnerabilities in Java/JSP projects.
@@ -109,10 +121,15 @@ def main(
     start_time = time.time()
     click.echo(f"🔍 Starting scan on {target_path}...")
 
+    if ast:
+        click.echo("🔎 Using AST-based detection mode.")
+    else:
+        click.echo("🔎 Using regex-based detection mode.")
+
     codebase = Codebase(target_path)
     codebase.load_files()
 
-    scanner = Scanner(codebase)
+    scanner = Scanner(codebase, ast_mode=ast)
     # Use a progress bar while scanning files in parallel (implemented in scanner.scan)
     results = scanner.scan()
 

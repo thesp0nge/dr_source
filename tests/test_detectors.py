@@ -10,7 +10,6 @@ from dr_source.core.detectors.serialization import SerializationDetector
 from dr_source.core.detectors.ldap_injection import LDAPInjectionDetector
 from dr_source.core.detectors.xxe import XXEDetector
 from dr_source.core.detectors.ssrf import SSRFDetector
-from dr_source.core.codebase import FileObject
 from dr_source.core.detectors.crypto import CryptoDetector
 
 # Sample content for tests:
