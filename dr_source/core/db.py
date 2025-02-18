@@ -11,14 +11,14 @@ class ScanDatabase:
         if project_name in {".", "..", ""}:
             project_name = "default_project"
         self.project_name = self._sanitize_project_name(project_name)
+        self.db_directory = os.path.join(
+            os.path.expanduser("~"), "dr_source", "scans", "dbs"
+        )
         self.db_path = os.path.join(
-            os.path.expanduser("~"),
-            "dr_source",
-            "scans",
-            "dbs",
+            f"{self.db_directory}",
             f"{self.project_name}.db",
         )
-        os.makedirs("databases", exist_ok=True)
+        os.makedirs(self.db_directory, exist_ok=True)
         self._create_tables()
 
     def _sanitize_project_name(self, name):
