@@ -20,6 +20,5 @@ def test_sql_injection_ast_taint():
     results = detector.detect_ast_from_tree(file_obj, tree)
     assert results, "AST-based SQL Injection vulnerability should be flagged"
     for res in results:
-        assert "SQL Injection (AST Taint)" in res["vuln_type"]
+        assert "SQL Injection" in res["vuln_type"]
         assert res["line"] > 0
-

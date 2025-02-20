@@ -1,6 +1,6 @@
 import pytest
 import javalang
-from dr_source.core.taint import TaintAnalyzer
+from dr_source.core.taint_visitor import TaintVisitor
 
 
 def test_taint_propagation():
@@ -14,9 +14,9 @@ def test_taint_propagation():
         "}"
     )
     tree = javalang.parse.parse(sample)
-    analyzer = TaintAnalyzer()
-    vulns = analyzer.analyze(tree)
-    # Expect at least one vulnerability with sink executeQuery
+    visitor = TaintVisitor()
+    visitor.visit(tree)
+    vulns = visitor.get_vulnerabilities(tree, ["executeQuery"])
     assert any(
         v["sink"] == "executeQuery" for v in vulns
     ), "Taint propagation should detect vulnerability"

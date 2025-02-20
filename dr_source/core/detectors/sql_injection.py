@@ -3,13 +3,12 @@ import re
 import logging
 import javalang
 from dr_source.core.detectors.base import BaseDetector
-from dr_source.core.taint import TaintAnalyzer
+from dr_source.core.taint_detector import TaintDetector
 
 logger = logging.getLogger(__name__)
 
 
 class SQLInjectionDetector(BaseDetector):
-    # Regex-based patterns (unchanged)
     REGEX_PATTERNS = [
         re.compile(
             r"(?i)(SELECT|INSERT|UPDATE|DELETE)\s+.*\s+FROM\s+.*\+.*request\.getParameter",
@@ -49,17 +48,8 @@ class SQLInjectionDetector(BaseDetector):
         return results
 
     def detect_ast_from_tree(self, file_object, ast_tree):
-        analyzer = TaintAnalyzer()
-        vulns = analyzer.analyze(ast_tree)
-        sql_vulns = []
-        for vuln in vulns:
-            if vuln["sink"] in ["executeQuery", "executeUpdate"]:
-                sql_vulns.append(
-                    {
-                        "file": file_object.path,
-                        "vuln_type": "SQL Injection (AST Taint)",
-                        "match": f"{vuln['sink']} called with tainted variable '{vuln['variable']}'",
-                        "line": vuln["line"],
-                    }
-                )
-        return sql_vulns
+        td = TaintDetector()
+        # For SQL Injection, consider executeQuery and executeUpdate as sinks.
+        return td.detect_ast_taint(
+            file_object, ast_tree, ["executeQuery", "executeUpdate"], "SQL Injection"
+        )
