@@ -92,6 +92,13 @@ dr_source --init-db /path/to/codebase
 dr_source --export sarif /path/to/codebase
 ```
 
+- Run a scan using AST-Based detection engine and create a ascii table with
+vulnerabilities:
+
+```bash
+dr_source --ast /path/to/codebase --export ascii --output report.txt
+```
+
 ## Contributing
 
 Contributions are welcome! To contribute:
