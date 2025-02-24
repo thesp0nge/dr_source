@@ -8,6 +8,10 @@ from dr_source.core.scanner import Scanner
 from dr_source.core.db import ScanDatabase
 from dr_source.logging import setup_logging
 
+from dr_source.reports.sarif import SARIFReport
+from dr_source.reports.ascii import ASCIIReport
+
+
 # Use importlib.metadata to get version information from the installed package
 try:
     from importlib.metadata import version as get_version
@@ -24,7 +28,7 @@ except ImportError:
 )
 @click.option(
     "--export",
-    type=click.Choice(["sarif", "json", "html"]),
+    type=click.Choice(["sarif", "json", "html", "ascii"]),
     help="Export results in the specified format.",
 )
 @click.option("--verbose", is_flag=True, help="Show detailed output during comparison.")
@@ -148,8 +152,6 @@ def main(
     if export:
         out_file = output if output else f"{project_name}_scan_{scan_id}.{export}"
         if export == "sarif":
-            from dr_source.reports.sarif import SARIFReport
-
             reporter = SARIFReport()
             report_content = reporter.generate(results)
             with open(out_file, "w") as f:
@@ -161,6 +163,16 @@ def main(
             click.echo(f"📄 Results exported to {out_file}")
         elif export == "html":
             click.echo("📄 HTML export not yet implemented.")
+        elif export == "ascii":
+            reporter = ASCIIReport()
+            report_content = reporter.generate(results)
+            # Se viene specificato un file di output, scrivi altrimenti stampa su stdout
+            if output:
+                with open(out_file, "w") as f:
+                    f.write(report_content)
+                click.echo(f"📄 Results exported to {out_file}")
+            else:
+                click.echo(report_content)
     else:
         for res in results:
             click.echo(

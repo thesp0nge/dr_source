@@ -21,7 +21,7 @@ class SSRFDetector(BaseDetector):
         for regex in self.REGEX_PATTERNS:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.info(
+                logger.debug(
                     "SSRF vulnerability (regex) found in '%s' at line %s: %s",
                     file_object.path,
                     line,
@@ -39,5 +39,5 @@ class SSRFDetector(BaseDetector):
 
     def detect_ast_from_tree(self, file_object, ast_tree):
         td = TaintDetector()
-        # For SSRF, consider sinks such as openConnection and similar.
+        # For SSRF, consider sinks like openConnection.
         return td.detect_ast_taint(file_object, ast_tree, ["openConnection"], "SSRF")

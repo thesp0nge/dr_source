@@ -29,7 +29,7 @@ class XSSDetector(BaseDetector):
         for regex in self.REGEX_PATTERNS:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.info(
+                logger.debug(
                     "XSS vulnerability (regex) found in '%s' at line %s: %s",
                     file_object.path,
                     line,
@@ -47,7 +47,7 @@ class XSSDetector(BaseDetector):
 
     def detect_ast_from_tree(self, file_object, ast_tree):
         td = TaintDetector()
-        # For XSS, consider output functions as sinks. (For example, print, println, write)
+        # Dangerous sinks for XSS might be output functions (print, println, write).
         return td.detect_ast_taint(
             file_object, ast_tree, ["print", "println", "write"], "XSS"
         )

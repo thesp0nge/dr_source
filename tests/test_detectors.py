@@ -62,14 +62,13 @@ def test_command_injection_detector():
 
 
 def test_serialization_detector():
-    # Updated sample now matches the revised regex pattern.
+    # Sample aggiornato: include "new ObjectInputStream(in)" prima di .readObject(
     SERIAL_SAMPLE = "Object obj = new ObjectInputStream(in).readObject( );"
     file_obj = FileObject("TestSerialization.java", SERIAL_SAMPLE)
     detector = SerializationDetector()
     results = detector.detect(file_obj)
     assert results, "Serialization detector should flag vulnerability"
     for result in results:
-        # Check if 'Serialization Issues' is a substring of the vulnerability type.
         assert (
             "Serialization Issues" in result["vuln_type"]
         ), f"Unexpected vuln type: {result['vuln_type']}"

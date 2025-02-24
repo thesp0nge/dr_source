@@ -9,9 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 class SerializationDetector(BaseDetector):
-    # Revised regex: expect "ObjectInputStream(...)" followed by ".readObject("
+    # Abbiamo aggiornato le regex per includere "new ObjectInputStream(...)"
     REGEX_PATTERNS = [
-        re.compile(r"(?i)ObjectInputStream\([^)]*\)\.readObject\s*\(", re.DOTALL),
+        # Pattern per matchare "new ObjectInputStream(...).readObject(" con spazi opzionali
+        re.compile(
+            r"(?i)new\s+ObjectInputStream\s*\([^)]*\)\.readObject\s*\(", re.DOTALL
+        ),
         re.compile(r"(?i)deserialize\s*\(.*\)", re.DOTALL),
     ]
 
@@ -24,7 +27,7 @@ class SerializationDetector(BaseDetector):
         for regex in self.REGEX_PATTERNS:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.info(
+                logger.debug(
                     "Serialization vulnerability (regex) found in '%s' at line %s: %s",
                     file_object.path,
                     line,
@@ -42,7 +45,7 @@ class SerializationDetector(BaseDetector):
 
     def detect_ast_from_tree(self, file_object, ast_tree):
         td = TaintDetector()
-        # For serialization, dangerous sink is readObject.
+        # Per la deserializzazione, il sink è readObject.
         return td.detect_ast_taint(
             file_object, ast_tree, ["readObject"], "Serialization Issues"
         )

@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased]
 
+### Added
+
 - Implementing data flow analysis and taint propagation
+- Added detectors for:
+  - open redirect
+  - insecure cookie settings
+  - insecure reflection
+  - insecure file inclusion
+  - deprecated API (just few apis by now, adding more it would be trivial)
+  - jndi injection
+  - session fixation
+  - information disclosure  
+
+- New ASCII tabular formatted report
+
+### Modified
+
+- Regex for hardcoded credential detectors
 
 ## [0.71.0] - 2025-02-18
 

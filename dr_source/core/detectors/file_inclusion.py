@@ -1,28 +1,34 @@
 import re
 import logging
-import javalang
 from dr_source.core.detectors.base import BaseDetector
 
 logger = logging.getLogger(__name__)
 
 
-class XXEDetector(BaseDetector):
+class FileInclusionDetector(BaseDetector):
+    """
+    Detects potential insecure file inclusion in JSP.
+    For example, when using <jsp:include page="<%= request.getParameter('page') %>" />.
+    """
+
     REGEX_PATTERNS = [
         re.compile(
-            r'(?i)<!DOCTYPE\s+[^>]+(SYSTEM|PUBLIC)\s+["\'][^"\']+["\']', re.DOTALL
+            r'(?i)<jsp:include\s+page\s*=\s*["\'].*request\.getParameter\s*\(',
+            re.DOTALL,
         ),
     ]
 
     def detect(self, file_object):
         results = []
         logger.debug(
-            "Regex scanning file '%s' for XXE vulnerabilities.", file_object.path
+            "Regex scanning file '%s' for File Inclusion vulnerabilities.",
+            file_object.path,
         )
         for regex in self.REGEX_PATTERNS:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
                 logger.debug(
-                    "XXE vulnerability (regex) found in '%s' at line %s: %s",
+                    "File Inclusion vulnerability (regex) found in '%s' at line %s: %s",
                     file_object.path,
                     line,
                     match.group(),
@@ -30,7 +36,7 @@ class XXEDetector(BaseDetector):
                 results.append(
                     {
                         "file": file_object.path,
-                        "vuln_type": "XXE (regex)",
+                        "vuln_type": "File Inclusion (regex)",
                         "match": match.group(),
                         "line": line,
                     }
@@ -38,7 +44,8 @@ class XXEDetector(BaseDetector):
         return results
 
     def detect_ast_from_tree(self, file_object, ast_tree):
+        # Per JSP, l'analisi AST è complessa; in questo esempio non implementiamo la modalità AST.
         logger.debug(
-            "AST-based detection for XXE is not implemented; falling back to regex."
+            "AST-based detection for File Inclusion not implemented; falling back to regex."
         )
         return []

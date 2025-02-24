@@ -27,7 +27,7 @@ class PathTraversalDetector(BaseDetector):
         for regex in self.REGEX_PATTERNS:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.info(
+                logger.debug(
                     "Path Traversal vulnerability (regex) found in '%s' at line %s: %s",
                     file_object.path,
                     line,
@@ -45,7 +45,7 @@ class PathTraversalDetector(BaseDetector):
 
     def detect_ast_from_tree(self, file_object, ast_tree):
         td = TaintDetector()
-        # For path traversal, consider sinks like File constructors and file stream classes.
+        # Dangerous sinks for path traversal may include File constructors and file stream classes.
         return td.detect_ast_taint(
             file_object,
             ast_tree,

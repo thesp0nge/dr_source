@@ -11,7 +11,9 @@ class HardcodedCredentialsDetector(BaseDetector):
     """
 
     REGEX_PATTERNS = [
-        re.compile(r'(?i)(password|pass|pwd|api_key|secret|token)\s*=\s*["\'].*?["\']'),
+        re.compile(
+            r'(?i)(password|pass|pwd|api_key|apikey|secret|token)\s*=\s*["\'].*?["\']'
+        ),
         re.compile(
             r'(?i)(aws_access_key_id|aws_secret_access_key)\s*=\s*["\'].*?["\']'
         ),

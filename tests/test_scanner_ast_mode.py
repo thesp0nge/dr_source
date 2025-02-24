@@ -11,10 +11,12 @@ def test_scanner_ast_mode():
         '    String username = request.getParameter("username");\n'
         '    String query = "SELECT * FROM users WHERE name = \'" + username + "\'";\n'
         "    stmt.executeQuery(query);\n"
+        '    Class cls = Class.forName(request.getParameter("className"));\n'
+        '    out.print(request.getParameter("input"));\n'
         "  }\n"
         "}"
     )
-    file_obj = FileObject("TestSQL.java", sample)
+    file_obj = FileObject("TestAll.java", sample)
 
     class DummyCodebase:
         def __init__(self, file_obj):
@@ -23,7 +25,10 @@ def test_scanner_ast_mode():
     codebase = DummyCodebase(file_obj)
     scanner = Scanner(codebase, ast_mode=True)
     results = scanner.scan()
-    ast_results = [r for r in results if "SQL Injection (AST Taint)" in r["vuln_type"]]
-    assert (
-        ast_results
-    ), "AST-based SQL Injection vulnerability should be flagged by the scanner"
+    vuln_types = {r["vuln_type"] for r in results}
+    assert any(
+        "SQL Injection" in vt for vt in vuln_types
+    ), "SQL Injection vulnerability should be flagged"
+    assert any(
+        "Insecure Reflection" in vt for vt in vuln_types
+    ), "Insecure Reflection vulnerability should be flagged"

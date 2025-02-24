@@ -22,7 +22,7 @@ class LDAPInjectionDetector(BaseDetector):
         for regex in self.REGEX_PATTERNS:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.info(
+                logger.debug(
                     "LDAP Injection vulnerability (regex) found in '%s' at line %s: %s",
                     file_object.path,
                     line,
@@ -40,8 +40,7 @@ class LDAPInjectionDetector(BaseDetector):
 
     def detect_ast_from_tree(self, file_object, ast_tree):
         td = TaintDetector()
-        # For LDAP Injection, assume a dangerous sink might be the construction of an LDAP URL.
-        # Here we use a simple sink: any method invocation with member 'ldapQuery' (as an example).
+        # For LDAP injection, dangerous sinks are less standardized; for example, we might check for ldapQuery calls.
         return td.detect_ast_taint(
             file_object, ast_tree, ["ldapQuery"], "LDAP Injection"
         )

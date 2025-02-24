@@ -27,7 +27,7 @@ class CryptoDetector(BaseDetector):
         for regex in self.REGEX_PATTERNS:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.info(
+                logger.debug(
                     "Unsafe crypto/hashing usage (regex) found in '%s' at line %s: %s",
                     file_object.path,
                     line,
@@ -44,8 +44,7 @@ class CryptoDetector(BaseDetector):
         return results
 
     def detect_ast_from_tree(self, file_object, ast_tree):
-        # For crypto functions, AST-based taint analysis is less common since they are literal checks.
-        # We return an empty list or fallback to regex.
+        # Typically, crypto checks are literal and AST-based analysis is less applicable.
         logger.debug(
             "AST-based detection for Crypto not implemented; falling back to regex."
         )

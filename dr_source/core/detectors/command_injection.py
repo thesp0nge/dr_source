@@ -27,7 +27,7 @@ class CommandInjectionDetector(BaseDetector):
         for regex in self.REGEX_PATTERNS:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.info(
+                logger.debug(
                     "Command Injection vulnerability (regex) found in '%s' at line %s: %s",
                     file_object.path,
                     line,
@@ -45,7 +45,7 @@ class CommandInjectionDetector(BaseDetector):
 
     def detect_ast_from_tree(self, file_object, ast_tree):
         td = TaintDetector()
-        # For command injection, dangerous sinks include exec and start.
+        # Dangerous sinks for command injection include exec and start.
         return td.detect_ast_taint(
             file_object, ast_tree, ["exec", "start"], "Command Injection"
         )
