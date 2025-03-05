@@ -24,7 +24,6 @@ class XSSDetector(BaseDetector):
     BUILTIN_AST_SINK = ["print", "println", "write"]
 
     def __init__(self):
-        # Load custom rules if available, otherwise use defaults.
         rules = DetectionRules.instance().get_rules("xss")
         custom_regex = rules.get("regex")
         if custom_regex:
@@ -32,8 +31,13 @@ class XSSDetector(BaseDetector):
         else:
             self.regex_patterns = self.BUILTIN_REGEX_PATTERNS
         self.ast_sink = rules.get("ast_sink", self.BUILTIN_AST_SINK)
+        # Default: non in modalità AST
+        self.ast_mode = False
 
     def detect(self, file_object):
+        # Se siamo in modalità AST, non eseguire il rilevamento regex.
+        if self.ast_mode:
+            return []
         results = []
         logger.debug(
             "Regex scanning file '%s' for XSS vulnerabilities.", file_object.path
