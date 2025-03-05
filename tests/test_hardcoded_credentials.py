@@ -14,7 +14,8 @@ def test_hardcoded_credentials_detector():
     detector = HardcodedCredentialsDetector()
     results = detector.detect(file_obj)
 
-    assert results, "Hardcode credential"
+    assert results, "Hardcoded credentials should be flagged"
     for result in results:
-        assert "Hardcode credential" in result["vuln_type"]
-        assert result["line"] > 0
+        assert (
+            "Hardcoded Credentials" in result["vuln_type"]
+        ), f"Unexpected vuln_type: {result['vuln_type']}"

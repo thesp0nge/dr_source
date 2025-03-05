@@ -1,3 +1,4 @@
+# dr_source/core/detectors/ssrf.py
 import re
 import logging
 import javalang
@@ -8,25 +9,24 @@ logger = logging.getLogger(__name__)
 
 
 class SSRFDetector(BaseDetector):
-    REGEX_PATTERNS = [
+    BUILTIN_REGEX_PATTERNS = [
         re.compile(r"(?i)new\s+URL\s*\(.*request\.getParameter.*\)", re.DOTALL),
         re.compile(r"(?i)openConnection\s*\(.*request\.getParameter.*\)", re.DOTALL),
     ]
+    BUILTIN_AST_SINK = ["openConnection"]
+
+    def __init__(self):
+        self.regex_patterns = self.BUILTIN_REGEX_PATTERNS
+        self.ast_sink = self.BUILTIN_AST_SINK
+        self.ast_mode = False
 
     def detect(self, file_object):
+        if self.ast_mode:
+            return []
         results = []
-        logger.debug(
-            "Regex scanning file '%s' for SSRF vulnerabilities.", file_object.path
-        )
-        for regex in self.REGEX_PATTERNS:
+        for regex in self.regex_patterns:
             for match in regex.finditer(file_object.content):
                 line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.debug(
-                    "SSRF vulnerability (regex) found in '%s' at line %s: %s",
-                    file_object.path,
-                    line,
-                    match.group(),
-                )
                 results.append(
                     {
                         "file": file_object.path,
@@ -39,5 +39,4 @@ class SSRFDetector(BaseDetector):
 
     def detect_ast_from_tree(self, file_object, ast_tree):
         td = TaintDetector()
-        # For SSRF, consider sinks like openConnection.
-        return td.detect_ast_taint(file_object, ast_tree, ["openConnection"], "SSRF")
+        return td.detect_ast_taint(file_object, ast_tree, self.ast_sink, "SSRF")

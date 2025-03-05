@@ -1,3 +1,4 @@
+# dr_source/core/detectors/jndi_injection.py
 import re
 import logging
 import javalang
@@ -8,32 +9,24 @@ logger = logging.getLogger(__name__)
 
 
 class JNDIInjectionDetector(BaseDetector):
-    """
-    Detects potential JNDI injection vulnerabilities.
-    Example: InitialContext ctx = new InitialContext();
-             Object obj = ctx.lookup(request.getParameter("jndiName"));
-    """
-
-    # Aggiorniamo il pattern per catturare "lookup(...request.getParameter(...)" in modo più generico.
-    REGEX_PATTERNS = [
+    BUILTIN_REGEX_PATTERNS = [
         re.compile(r"(?i)lookup\s*\(.*request\.getParameter\s*\(", re.DOTALL),
     ]
+    BUILTIN_AST_SINK = ["lookup"]
+
+    def __init__(self):
+        self.regex_patterns = self.BUILTIN_REGEX_PATTERNS
+        self.ast_sink = self.BUILTIN_AST_SINK
+        self.ast_mode = False
 
     def detect(self, file_object):
+        if self.ast_mode:
+            return []
         results = []
-        logger.debug(
-            "Regex scanning file '%s' for JNDI Injection vulnerabilities.",
-            file_object.path,
-        )
-        for regex in self.REGEX_PATTERNS:
-            for match in regex.finditer(file_object.content):
-                line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.debug(
-                    "JNDI Injection vulnerability (regex) found in '%s' at line %s: %s",
-                    file_object.path,
-                    line,
-                    match.group(),
-                )
+        content = file_object.content
+        for regex in self.regex_patterns:
+            for match in regex.finditer(content):
+                line = content.count("\n", 0, match.start()) + 1
                 results.append(
                     {
                         "file": file_object.path,
@@ -46,5 +39,6 @@ class JNDIInjectionDetector(BaseDetector):
 
     def detect_ast_from_tree(self, file_object, ast_tree):
         td = TaintDetector()
-        # For JNDI injection, consider the sink method 'lookup'
-        return td.detect_ast_taint(file_object, ast_tree, ["lookup"], "JNDI Injection")
+        return td.detect_ast_taint(
+            file_object, ast_tree, self.ast_sink, "JNDI Injection"
+        )

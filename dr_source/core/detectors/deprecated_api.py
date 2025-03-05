@@ -1,3 +1,4 @@
+# dr_source/core/detectors/deprecated_api.py
 import re
 import logging
 import javalang
@@ -7,14 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class DeprecatedAPIDetector(BaseDetector):
-    """
-    Detects usage of deprecated APIs.
-    Esempi:
-      - Thread.stop(), Thread.suspend(), Thread.resume()
-      - System.runFinalizersOnExit(), Runtime.runFinalizersOnExit()
-    """
-
-    REGEX_PATTERNS = [
+    BUILTIN_REGEX_PATTERNS = [
         re.compile(r"(?i)Thread\.stop\s*\("),
         re.compile(r"(?i)Thread\.suspend\s*\("),
         re.compile(r"(?i)Thread\.resume\s*\("),
@@ -22,20 +16,18 @@ class DeprecatedAPIDetector(BaseDetector):
         re.compile(r"(?i)Runtime\.runFinalizersOnExit\s*\("),
     ]
 
+    def __init__(self):
+        self.regex_patterns = self.BUILTIN_REGEX_PATTERNS
+        self.ast_mode = False
+
     def detect(self, file_object):
+        if self.ast_mode:
+            return []
         results = []
-        logger.debug(
-            "Regex scanning file '%s' for deprecated API usage.", file_object.path
-        )
-        for regex in self.REGEX_PATTERNS:
-            for match in regex.finditer(file_object.content):
-                line = file_object.content.count("\n", 0, match.start()) + 1
-                logger.debug(
-                    "Deprecated API usage (regex) found in '%s' at line %s: %s",
-                    file_object.path,
-                    line,
-                    match.group(),
-                )
+        content = file_object.content
+        for regex in self.regex_patterns:
+            for match in regex.finditer(content):
+                line = content.count("\n", 0, match.start()) + 1
                 results.append(
                     {
                         "file": file_object.path,
@@ -63,7 +55,7 @@ class DeprecatedAPIDetector(BaseDetector):
                         "line": line,
                     }
                 )
-                logger.debug(
+                logger.info(
                     "Deprecated API usage (AST) found: %s at line %s", node.member, line
                 )
         return results
