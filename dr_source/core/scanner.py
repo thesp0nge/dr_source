@@ -11,6 +11,10 @@ class Scanner:
         self.ast_mode = ast_mode
         # Instantiate each detector once
         self.detectors = [detector() for detector in DETECTORS]
+        if self.ast_mode:
+            # Imposta il flag ast_mode su ciascun detector
+            for detector in self.detectors:
+                detector.ast_mode = True
 
     def scan(self):
         results = []
@@ -33,6 +37,7 @@ class Scanner:
     def scan_file(self, file_obj):
         file_results = []
         ast_tree = None
+        # For Java files, try to parse the AST.
         if self.ast_mode and file_obj.path.endswith(".java"):
             try:
                 ast_tree = javalang.parse.parse(file_obj.content)
