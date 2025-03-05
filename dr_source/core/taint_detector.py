@@ -18,6 +18,7 @@ class TaintDetector:
                     "vuln_type": f"{vuln_prefix} (AST Taint)",
                     "match": f"{v['sink']} called with tainted variable '{v['variable']}'",
                     "line": v["line"],
+                    "trace": v.get("trace", []),
                 }
             )
         return results

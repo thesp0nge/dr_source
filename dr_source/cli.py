@@ -44,6 +44,11 @@ except ImportError:
 @click.option(
     "--ast", is_flag=True, help="Enable AST-based detection (instead of regex-based)."
 )
+@click.option(
+    "--show-trace",
+    is_flag=True,
+    help="Display full call trace for AST-based vulnerabilities.",
+)
 def main(
     target_path,
     init_db,
@@ -55,6 +60,7 @@ def main(
     debug,
     show_version,
     ast,
+    show_trace,
 ):
     """
     DRSource - A static analysis tool for detecting vulnerabilities in Java/JSP projects.
@@ -174,10 +180,14 @@ def main(
             else:
                 click.echo(report_content)
     else:
+        show_trace = click.get_current_context().params.get("show_trace", False)
         for res in results:
-            click.echo(
+            output_line = (
                 f"[{res['vuln_type']}] {res['file']}:{res['line']} -> {res['match']}"
             )
+            if show_trace and "trace" in res and res["trace"]:
+                output_line += "\n    Trace: " + " -> ".join(res["trace"])
+            click.echo(output_line)
 
 
 if __name__ == "__main__":
