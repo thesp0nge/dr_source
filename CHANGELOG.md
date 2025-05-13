@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - information disclosure  
 
 - New ASCII tabular formatted report
+- New --where-used flag to spot where a class is used in the target project
+- New --ast flag to enable **only** AST scanning
+- New --show-trace flag to show the taint propagation trace when a vulnerability
+  is found in AST scanning
 
 ### Modified
 
