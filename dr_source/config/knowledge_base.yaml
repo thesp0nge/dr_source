@@ -5,6 +5,7 @@
 # VULNERABILITY_ID:
 #   description: "..."
 #   cwe: "..."
+#   severity: "..."
 #
 #   # --- General rules, apply to all languages (e.g., secret scanning) ---
 #   general_regex_patterns:
@@ -38,6 +39,7 @@ SQL_INJECTION:
     "Building SQL queries by concatenating unvalidated user input leads to SQL
     Injection."
   cwe: "CWE-89"
+  severity: "HIGH"
 
   language_specific:
     java:
@@ -58,9 +60,9 @@ SQL_INJECTION:
       ast_sources:
         - "request.getParameter"
       ast_sinks:
-        - "Statement.executeQuery"
-        - "Statement.executeUpdate"
-        - "Statement.execute"
+        - "executeQuery"
+        - "executeUpdate"
+        - "execute"
 
     python:
       regex_patterns:
@@ -102,6 +104,7 @@ COMMAND_INJECTION:
     "Building OS commands by concatenating unvalidated user input leads to
     Remote Code Execution (RCE)."
   cwe: "CWE-78"
+  severity: "HIGH"
 
   language_specific:
     java:
@@ -161,6 +164,7 @@ XSS:
     "Writing unvalidated user input directly to an HTML response leads to
     Cross-Site Scripting (XSS)."
   cwe: "CWE-79"
+  severity: "HIGH"
 
   language_specific:
     java:
@@ -201,6 +205,7 @@ HARDCODED_PASSWORD:
     "Hardcoding passwords, API keys, or other credentials in source code is
     highly insecure."
   cwe: "CWE-798"
+  severity: "HIGH"
 
   # These rules are general and apply to ALL languages
   general_regex_patterns:
@@ -220,6 +225,7 @@ INSECURE_DESERIALIZATION:
   description:
     "Deserializing untrusted data can lead to Remote Code Execution (RCE)."
   cwe: "CWE-502"
+  severity: "HIGH"
 
   language_specific:
     java:
@@ -243,4 +249,104 @@ INSECURE_DESERIALIZATION:
             pickle\.loads\s*\(
       ast_sinks:
         - "pickle.loads"
-        - "yaml.load" # The unsafe one
+        - "yaml.load"
+OPEN_REDIRECT:
+  description:
+    "Allowing user input to control a redirect destination can enable phishing
+    attacks."
+  cwe: "CWE-601"
+  severity: "MEDIUM"
+  language_specific:
+    java:
+      ast_sources:
+        - "getParameter"
+      ast_sinks:
+        - "sendRedirect"
+
+PATH_TRAVERSAL:
+  description:
+    "Using unvalidated user input to build a file path can allow an attacker to
+    read or write arbitrary files."
+  cwe: "CWE-22"
+  severity: "HIGH"
+  language_specific:
+    java:
+      ast_sources:
+        - "getParameter"
+      ast_sinks:
+        # Sinks are the constructors
+        - "File"
+        - "FileInputStream"
+        - "FileOutputStream"
+        - "FileReader"
+
+# A02:2021 - Cryptographic Failures
+WEAK_CRYPTO:
+  description:
+    "Using outdated or weak cryptographic algorithms (e.g., DES, MD5, SHA1) is
+    insecure."
+  cwe: "CWE-327"
+  severity: "HIGH"
+  language_specific:
+    java:
+      regex_patterns:
+        - id: "JAVA-CRYPTO-001"
+          message: "Use of insecure DES cipher. Use AES/GCM/NoPadding instead."
+          severity: "HIGH"
+          pattern: |
+            Cipher\.getInstance\s*\(\s*["']DES
+        - id: "JAVA-CRYPTO-002"
+          message:
+            "Use of insecure hashing algorithm MD5. Use SHA-256 or stronger."
+          severity: "HIGH"
+          pattern: |
+            MessageDigest\.getInstance\s*\(\s*["']MD5
+      ast_sinks:
+        - "getInstance"
+XXE:
+  description:
+    "Parsing XML from an untrusted source without disabling external entities
+    leads to XML External Entity (XXE) attacks."
+  cwe: "CWE-611"
+  severity: "HIGH"
+  language_specific:
+    java:
+      ast_sinks:
+        - "parse"
+
+INSECURE_COOKIE:
+  description:
+    "Cookies created without the 'HttpOnly' or 'Secure' flags are vulnerable to
+    theft."
+  cwe: "CWE-1004"
+  severity: "MEDIUM"
+  language_specific:
+    java:
+      regex_patterns:
+        - id: "JAVA-COOKIE-001"
+          message: "Cookie 'HttpOnly' flag is explicitly set to false."
+          severity: "MEDIUM"
+          pattern: |
+            setHttpOnly\s*\(\s*false\s*\)
+        - id: "JAVA-COOKIE-002"
+          message:
+            "Cookie 'Secure' flag is explicitly set to false, allowing it to be
+            sent over HTTP."
+          severity: "MEDIUM"
+          pattern: |
+            setSecure\s*\(\s*false\s*\)
+SSRF:
+  description:
+    "Allowing an attacker to control the destination URL of a server-side
+    request can lead to SSRF."
+  cwe: "CWE-918"
+  severity: "HIGH"
+  language_specific:
+    java:
+      ast_sources:
+        - "getParameter"
+      ast_sinks:
+        - "URL" # <-- Coherent: Constructor is the sink
+        - "execute"
+        - "HttpGet"
+        - "HttpPost"

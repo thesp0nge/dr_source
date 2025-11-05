@@ -4,7 +4,6 @@ import re
 import logging
 import javalang
 from dr_source.core.detectors.base import BaseDetector
-from dr_source.core.taint_detector import TaintDetector
 
 logger = logging.getLogger(__name__)
 

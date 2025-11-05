@@ -1,15 +1,28 @@
-# dr_source/core/taint_detector.py
 import logging
 from .taint_visitor import TaintVisitor
+from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
 
 class TaintDetector:
-    def detect_ast_taint(self, file_object, ast_tree, sink_list, vuln_prefix):
-        visitor = TaintVisitor()
+    def detect_ast_taint(
+        self,
+        file_object,
+        ast_tree,
+        source_list: List[str],
+        sink_list: List[str],
+        vuln_prefix: str,
+    ) -> List[Dict[str, Any]]:
+        # 1. Create the visitor with *both* lists
+        visitor = TaintVisitor(source_list, sink_list)
+
+        # 2. Run the single-pass visit
         visitor.visit(ast_tree)
-        vulns = visitor.get_vulnerabilities(ast_tree, sink_list)
+
+        # 3. Get the results
+        vulns = visitor.get_vulnerabilities()
+
         results = []
         for v in vulns:
             results.append(
