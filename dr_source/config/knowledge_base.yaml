@@ -1,0 +1,246 @@
+#
+# DRSource Multi-Language Rule Knowledge Base
+#
+# Structure:
+# VULNERABILITY_ID:
+#   description: "..."
+#   cwe: "..."
+#
+#   # --- General rules, apply to all languages (e.g., secret scanning) ---
+#   general_regex_patterns:
+#     - id: "..."
+#       message: "..."
+#       severity: "..."
+#       pattern: |
+#         ...
+#
+#   # --- Language-specific rules ---
+#   language_specific:
+#     java:
+#       regex_patterns:
+#         - id: "..."
+#       ast_sources:
+#         - "..."
+#       ast_sinks:
+#         - "..."
+#     python:
+#       regex_patterns:
+#         - id: "..."
+#       ast_sources:
+#         - "..."
+#       ast_sinks:
+#         - "..."
+#
+
+# A03:2021 - Injection
+SQL_INJECTION:
+  description:
+    "Building SQL queries by concatenating unvalidated user input leads to SQL
+    Injection."
+  cwe: "CWE-89"
+
+  language_specific:
+    java:
+      regex_patterns:
+        - id: "JAVA-SQLI-001"
+          message:
+            "SQL query is directly concatenated with user input
+            (request.getParameter)."
+          severity: "HIGH"
+          pattern: |
+            (?i)(SELECT|INSERT|UPDATE|DELETE)\s+.*\s+FROM\s+.*\+.*request\.getParameter
+        - id: "JAVA-SQLI-002"
+          message:
+            "Insecure 'Statement.execute' call with string concatenation."
+          severity: "HIGH"
+          pattern: |
+            (?i)Statement\.execute(Query|Update)?\s*\(.*\+.*\)
+      ast_sources:
+        - "request.getParameter"
+      ast_sinks:
+        - "Statement.executeQuery"
+        - "Statement.executeUpdate"
+        - "Statement.execute"
+
+    python:
+      regex_patterns:
+        - id: "PY-SQLI-001"
+          message:
+            "SQL query constructed with f-string from request data (e.g.,
+            request.args)."
+          severity: "HIGH"
+          pattern: |
+            cursor\.execute\s*\(\s*f["'].*(request\.(args|form|json))
+      ast_sources:
+        # Flask, Django, etc.
+        - "request.args.get"
+        - "request.form"
+        - "request.json"
+        - "request.GET.get"
+        - "request.POST.get"
+      ast_sinks:
+        - "cursor.execute"
+
+    php:
+      regex_patterns:
+        - id: "PHP-SQLI-001"
+          message: "SQL query concatenated with $_GET or $_POST variable."
+          severity: "HIGH"
+          pattern: |
+            (mysqli_query|mysql_query|pg_query)\s*\(.*\.\s*\$_(GET|POST)
+      ast_sources:
+        - "$_GET"
+        - "$_POST"
+        - "$_REQUEST"
+      ast_sinks:
+        - "mysqli_query"
+        - "mysql_query"
+        - "pg_query"
+
+COMMAND_INJECTION:
+  description:
+    "Building OS commands by concatenating unvalidated user input leads to
+    Remote Code Execution (RCE)."
+  cwe: "CWE-78"
+
+  language_specific:
+    java:
+      regex_patterns:
+        - id: "JAVA-RCE-001"
+          message:
+            "OS command is built using unvalidated user input
+            (request.getParameter)."
+          severity: "CRITICAL"
+          pattern: |
+            Runtime\.getRuntime\(\)\.exec\s*\(.*\+.*request\.getParameter
+      ast_sources:
+        - "request.getParameter"
+      ast_sinks:
+        - "Runtime.getRuntime().exec"
+        - "new ProcessBuilder"
+
+    python:
+      regex_patterns:
+        - id: "PY-RCE-001"
+          message:
+            "Insecure 'os.system' or 'subprocess.Popen' call with shell=True and
+            request data."
+          severity: "CRITICAL"
+          pattern: |
+            (os\.system|subprocess\.Popen)\s*\(.*\+.*(request\.(args|form|json))
+      ast_sources:
+        - "request.args.get"
+        - "request.form"
+      ast_sinks:
+        - "os.system"
+        - "subprocess.Popen" # (Need to check for shell=True)
+        - "eval"
+        - "exec"
+
+    php:
+      regex_patterns:
+        - id: "PHP-RCE-001"
+          message:
+            "Insecure 'exec', 'system', or 'passthru' call with $_GET or $_POST
+            variable."
+          severity: "CRITICAL"
+          pattern: |
+            (exec|system|passthru|shell_exec|`)\s*\(.*\.\s*\$_(GET|POST)
+      ast_sources:
+        - "$_GET"
+        - "$_POST"
+      ast_sinks:
+        - "exec"
+        - "system"
+        - "passthru"
+        - "shell_exec"
+        - "`" # Backticks operator
+
+XSS:
+  description:
+    "Writing unvalidated user input directly to an HTML response leads to
+    Cross-Site Scripting (XSS)."
+  cwe: "CWE-79"
+
+  language_specific:
+    java:
+      regex_patterns:
+        - id: "JAVA-XSS-001"
+          message:
+            "User input is written directly to the HTTP response without
+            encoding."
+          severity: "HIGH"
+          pattern: |
+            response\.getWriter\(\)\.print(ln)?\s*\(.*request\.getParameter
+      ast_sources:
+        - "request.getParameter"
+      ast_sinks:
+        - "response.getWriter().print"
+        - "response.getWriter().println"
+
+    python:
+      # Note: Modern frameworks like Django/Flask auto-escape by default.
+      # These rules look for deliberate disabling of auto-escaping.
+      regex_patterns:
+        - id: "PY-XSS-001"
+          message:
+            "User input rendered with 'Markup' or 'safe' filter, disabling
+            auto-escaping."
+          severity: "HIGH"
+          pattern: |
+            (Markup|safe)\s*\(.*(request\.(args|form|json))
+      ast_sources:
+        - "request.args.get"
+      ast_sinks:
+        - "Markup" # e.g., in Flask
+        - "| safe" # e.g., in Jinja2/Django
+
+# A05:2021 - Security Misconfiguration
+HARDCODED_PASSWORD:
+  description:
+    "Hardcoding passwords, API keys, or other credentials in source code is
+    highly insecure."
+  cwe: "CWE-798"
+
+  # These rules are general and apply to ALL languages
+  general_regex_patterns:
+    - id: "GEN-PASS-001"
+      message: "A hardcoded password appears to be in the code."
+      severity: "HIGH"
+      pattern: |
+        (?i)(password|passwd|pwd)\s*[=:]\s*["'](.{4,})["']
+    - id: "GEN-PASS-002"
+      message: "A hardcoded API key or access token appears to be in the code."
+      severity: "HIGH"
+      pattern: |
+        (?i)(api_key|apikey|access_token|accesstoken)\s*[=:]\s*["'](.{12,})["']
+
+# A08:2021 - Software and Data Integrity Failures
+INSECURE_DESERIALIZATION:
+  description:
+    "Deserializing untrusted data can lead to Remote Code Execution (RCE)."
+  cwe: "CWE-502"
+
+  language_specific:
+    java:
+      regex_patterns:
+        - id: "JAVA-DESER-001"
+          message:
+            "Unsafe deserialization with 'ObjectInputStream.readObject()'."
+          severity: "CRITICAL"
+          pattern: |
+            ObjectInputStream\.readObject\s*\(\)
+      ast_sinks:
+        - "ObjectInputStream.readObject"
+        - "XMLDecoder.readObject"
+
+    python:
+      regex_patterns:
+        - id: "PY-DESER-001"
+          message: "Unsafe deserialization with 'pickle.loads()'."
+          severity: "CRITICAL"
+          pattern: |
+            pickle\.loads\s*\(
+      ast_sinks:
+        - "pickle.loads"
+        - "yaml.load" # The unsafe one

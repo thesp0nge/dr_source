@@ -1,6 +1,6 @@
 # dr_source/core/taint_detector.py
 import logging
-from dr_source.core.taint_visitor import TaintVisitor
+from .taint_visitor import TaintVisitor
 
 logger = logging.getLogger(__name__)
 
