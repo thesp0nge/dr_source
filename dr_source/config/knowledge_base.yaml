@@ -56,7 +56,7 @@ SQL_INJECTION:
             "Insecure 'Statement.execute' call with string concatenation."
           severity: "HIGH"
           pattern: |
-            (?i)Statement\.execute(Query|Update)?\s*\(.*\+.*\)
+            (?i)^\s*Statement\.execute(Query|Update)?\s*\(.*?\+.*\)
       ast_sources:
         - "request.getParameter"
       ast_sinks:
