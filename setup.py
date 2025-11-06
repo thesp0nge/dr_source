@@ -9,6 +9,10 @@ setup(
         "console_scripts": [
             "dr_source=dr_source.cli:main",
         ],
+        "dr_source.plugins": [
+            "java_ast = dr_source.plugins.java.plugin:JavaAstAnalyzer",
+            "regex_all = dr_source.plugins.regex.plugin:RegexAnalyzer",
+        ],
     },
     include_package_data=True,
     zip_safe=False,

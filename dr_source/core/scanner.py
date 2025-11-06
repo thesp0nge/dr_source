@@ -1,55 +1,122 @@
-# dr_source/core/scanner.py
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import click
-import javalang
-from dr_source.core.detectors import DETECTORS
+import os
+import logging
+import time
+import importlib.metadata
+from typing import List, Dict, Callable
+
+from dr_source.api import AnalyzerPlugin, Vulnerability
+
+# Import your actual database class
+from dr_source.core.db import ScanDatabase
+
+logger = logging.getLogger(__name__)
 
 
 class Scanner:
-    def __init__(self, codebase, ast_mode=False):
-        self.codebase = codebase
-        self.ast_mode = ast_mode
-        # Instantiate each detector once
-        self.detectors = [detector() for detector in DETECTORS]
-        if self.ast_mode:
-            # Imposta il flag ast_mode su ciascun detector
-            for detector in self.detectors:
-                detector.ast_mode = True
+    """
+    The main orchestrator. Scans a codebase by loading and
+    running all registered analyzer plugins.
+    """
+
+    def __init__(self, target_path: str):
+        self.target_path = target_path
+        # Use the target_path to initialize the database
+        # This reuses your existing sanitization logic in the DB class
+        self.db = ScanDatabase(project_name=target_path)
+
+        # This will hold { ".java": [JavaPlugin], ".*": [RegexPlugin], ... }
+        self.extension_map: Dict[str, List[AnalyzerPlugin]] = {}
+
+        self.load_plugins()
+
+    def load_plugins(self):
+        """
+        Discovers and loads all plugins registered under
+        the 'dr_source.plugins' entry point.
+        """
+        logger.info("Loading analyzer plugins...")
+
+        try:
+            entry_points = importlib.metadata.entry_points(group="dr_source.plugins")
+        except Exception as e:
+            logger.error(f"Error loading entry points: {e}")
+            entry_points = []
+
+        for ep in entry_points:
+            try:
+                plugin_class = ep.load()
+                plugin_instance: AnalyzerPlugin = plugin_class()
+
+                logger.info(f"  - Loaded plugin: {plugin_instance.name}")
+
+                for ext in plugin_instance.get_supported_extensions():
+                    if ext not in self.extension_map:
+                        self.extension_map[ext] = []
+                    self.extension_map[ext].append(plugin_instance)
+
+            except Exception as e:
+                logger.error(f"Failed to load plugin {ep.name}: {e}")
 
     def scan(self):
-        results = []
-        files = self.codebase.files
-        with ThreadPoolExecutor() as executor:
-            future_to_file = {
-                executor.submit(self.scan_file, file_obj): file_obj
-                for file_obj in files
-            }
-            with click.progressbar(
-                length=len(future_to_file), label="Scanning files"
-            ) as bar:
-                for future in as_completed(future_to_file):
-                    file_results = future.result()
-                    if file_results:
-                        results.extend(file_results)
-                    bar.update(1)
-        return results
+        """
+        Walks the target directory, delegates files to plugins,
+        and saves all results to the database.
+        """
+        logger.info(f"Starting scan on: {self.target_path}")
 
-    def scan_file(self, file_obj):
-        file_results = []
-        ast_tree = None
-        # For Java files, try to parse the AST.
-        if self.ast_mode and file_obj.path.endswith(".java"):
+        # 1. Start the scan and get the scan_id
+        scan_id = self.db.start_scan()
+        start_time = time.time()
+
+        all_findings_dataclass: List[Vulnerability] = []
+        num_files_analyzed = 0
+
+        for root, _, files in os.walk(self.target_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                _, ext = os.path.splitext(file)
+
+                plugins_to_run = self.extension_map.get(ext, [])
+                plugins_to_run.extend(self.extension_map.get(".*", []))
+
+                if not plugins_to_run:
+                    continue
+
+                num_files_analyzed += 1
+                for plugin in plugins_to_run:
+                    try:
+                        # 2. Collect findings as dataclasses
+                        findings = plugin.analyze(file_path)
+                        all_findings_dataclass.extend(findings)
+                    except Exception as e:
+                        logger.error(f"Plugin {plugin.name} failed on {file_path}: {e}")
+
+        # 3. Convert dataclasses to dictionaries for the database
+        all_findings_dict = []
+        for vuln in all_findings_dataclass:
+            all_findings_dict.append(
+                {
+                    "file": vuln.file_path,
+                    "vuln_type": vuln.vulnerability_type,
+                    "match": vuln.message,  # DB 'details' col maps to 'match' key
+                    "line": vuln.line_number,
+                }
+            )
+
+        # 4. Store all findings in one transaction
+        if all_findings_dict:
             try:
-                ast_tree = javalang.parse.parse(file_obj.content)
+                self.db.store_vulnerabilities(scan_id, all_findings_dict)
             except Exception as e:
-                ast_tree = None
-        for detector in self.detectors:
-            if (
-                self.ast_mode
-                and hasattr(detector, "detect_ast_from_tree")
-                and ast_tree is not None
-            ):
-                file_results.extend(detector.detect_ast_from_tree(file_obj, ast_tree))
-            else:
-                file_results.extend(detector.detect(file_obj))
-        return file_results
+                logger.error(f"Failed to store vulnerabilities in database: {e}")
+
+        # 5. Update the scan summary
+        scan_duration = time.time() - start_time
+        self.db.update_scan_summary(
+            scan_id,
+            num_vulnerabilities=len(all_findings_dict),
+            num_files_analyzed=num_files_analyzed,
+            scan_duration=scan_duration,
+        )
+
+        logger.info(f"Scan complete. Found {len(all_findings_dict)} vulnerabilities.")
