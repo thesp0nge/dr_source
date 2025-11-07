@@ -62,6 +62,7 @@ class JavaAstAnalyzer(AnalyzerPlugin):
                         file_path=issue["file"],
                         line_number=issue["line"],
                         plugin_name=self.name,
+                        trace=issue.get("trace", []),
                     )
                     findings.append(vuln)
 

@@ -1,7 +1,7 @@
 # File: dr_source/api.py
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Literal
 
 # Define standard severity levels
@@ -28,6 +28,8 @@ class Vulnerability:
 
     # Who found it?
     plugin_name: str  # e.g., "Java AST Analyzer"
+
+    trace: List[str] = field(default_factory=list)
 
 
 # --- 2. The Analyzer Plugin "Contract" ---

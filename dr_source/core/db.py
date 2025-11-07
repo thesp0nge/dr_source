@@ -3,6 +3,8 @@ import sqlite3
 import os
 import re
 from datetime import datetime
+from dr_source.api import Vulnerability
+from typing import List
 
 
 class ScanDatabase:
@@ -46,6 +48,9 @@ class ScanDatabase:
                 vuln_type TEXT NOT NULL,
                 details TEXT,
                 line INTEGER,
+                severity TEXT,
+                plugin_name TEXT,
+                trace TEXT,
                 FOREIGN KEY(scan_id) REFERENCES scans(id)
             )
         """)
@@ -112,13 +117,25 @@ class ScanDatabase:
         try:
             cursor = conn.cursor()
             data = [
-                (scan_id, vuln["file"], vuln["vuln_type"], vuln["match"], vuln["line"])
+                (
+                    scan_id,
+                    vuln.get("file"),
+                    vuln.get("vuln_type"),
+                    vuln.get("match"),
+                    vuln.get("line"),
+                    vuln.get("severity"),
+                    vuln.get("plugin_name"),
+                    vuln.get("trace"),
+                )
                 for vuln in vulns
             ]
             cursor.executemany(
                 """
-                INSERT INTO vulnerabilities (scan_id, file, vuln_type, details, line)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO vulnerabilities (
+                    scan_id, file, vuln_type, details, line,
+                    severity, plugin_name, trace
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 data,
             )
@@ -200,3 +217,35 @@ class ScanDatabase:
             "resolved": list(resolved_issues),
             "persistent": list(persistent_issues),
         }
+
+    def get_vulnerabilities_for_scan(self, scan_id: int) -> List[dict]:
+        """
+        Fetches all vulnerabilities for a given scan_id and returns
+        them as a list of dictionaries.
+        """
+        conn = sqlite3.connect(self.db_path)
+        # Make the connection return rows as dictionaries
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT file, vuln_type, details AS match, line, severity, plugin_name, trace
+            FROM vulnerabilities WHERE scan_id=?
+            """,
+            (scan_id,),
+        )
+        records = cursor.fetchall()
+        conn.close()
+
+        # Convert sqlite3.Row objects to standard dicts
+        # and re-split the trace string into a list
+        results = []
+        for row in records:
+            res_dict = dict(row)
+            res_dict["trace"] = (
+                res_dict.get("trace", "").split(" -> ") if res_dict.get("trace") else []
+            )
+            results.append(res_dict)
+
+        return results

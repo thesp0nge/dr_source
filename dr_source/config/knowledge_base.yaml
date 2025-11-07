@@ -350,3 +350,106 @@ SSRF:
         - "execute"
         - "HttpGet"
         - "HttpPost"
+SESSION_FIXATION:
+  description:
+    "Failure to invalidate the user's session after login, which can allow an
+    attacker to use a known session ID."
+  cwe: "CWE-384"
+  severity: "MEDIUM"
+  language_specific:
+    java:
+      regex_patterns:
+        - id: "JAVA-SESS-001"
+          message:
+            "A user attribute is set on the session. Ensure
+            'session.invalidate()' was called before this."
+          severity: "MEDIUM"
+          # This is a 'noisy' rule to flag potential login points
+          pattern: |
+            (?i)^\s*session\.setAttribute\s*\(\s*["'](user|username|uid|principal)["']
+
+# A04:2021 - Insecure Design
+# (Deprecated API falls here)
+DEPRECATED_API:
+  description:
+    "Using deprecated or obsolete functions that are known to be insecure, such
+    as Thread.stop()."
+  cwe: "CWE-477"
+  severity: "LOW"
+  language_specific:
+    java:
+      regex_patterns:
+        - id: "JAVA-DEPR-001"
+          message: "Insecure deprecated method 'Thread.stop()' is used."
+          severity: "LOW"
+          pattern: |
+            (?i)\.stop\s*\(\s*\)
+        - id: "JAVA-DEPR-002"
+          message:
+            "Insecure deprecated method 'Thread.suspend()' or 'Thread.resume()'
+            is used."
+          severity: "LOW"
+          pattern: |
+            (?i)\.(suspend|resume)\s*\(\s*\)
+
+# A05:2021 - Security Misconfiguration
+INFORMATION_DISCLOSURE:
+  description:
+    "Application leaks sensitive information, such as in error messages or stack
+    traces."
+  cwe: "CWE-200"
+  severity: "LOW"
+  general_regex_patterns:
+    - id: "GEN-INFO-001"
+      message:
+        "The application prints a stack trace, which could leak sensitive
+        information to an attacker."
+      severity: "LOW"
+      pattern: |
+        (?i)^\s*e\.printStackTrace\(\s*\)
+
+# A08:2021 - Software and Data Integrity Failures
+INSECURE_REFLECTION:
+  description:
+    "Using unvalidated user input to control reflection (e.g., Class.forName())
+    can lead to RCE."
+  cwe: "CWE-470"
+  severity: "HIGH"
+  language_specific:
+    java:
+      regex_patterns:
+        - id: "JAVA-REFL-001"
+          message:
+            "Insecure call to 'Class.forName()' with concatenated user input."
+          severity: "HIGH"
+          pattern: |
+            (?i)^\s*Class\.forName\s*\(.*\+.*request\.getParameter
+      ast_sources:
+        - "getParameter"
+      ast_sinks:
+        - "forName"
+        - "invoke"
+        - "new" # (When used with reflection)
+
+# A03:2021 - Injection
+# (JNDI Injection is a form of injection)
+JNDI_INJECTION:
+  description:
+    "Using unvalidated user input in a JNDI lookup can lead to remote code
+    execution (RCE)."
+  cwe: "CWE-95" # (Related to code injection)
+  severity: "CRITICAL"
+  language_specific:
+    java:
+      regex_patterns:
+        - id: "JAVA-JNDI-001"
+          message:
+            "JNDI lookup 'InitialContext.lookup()' is called with concatenated
+            user input."
+          severity: "CRITICAL"
+          pattern: |
+            (?i)^\s*InitialContext\.lookup\s*\(.*\+.*\)
+      ast_sources:
+        - "getParameter"
+      ast_sinks:
+        - "lookup" # (e.g., InitialContext.lookup)

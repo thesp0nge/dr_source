@@ -1,113 +1,134 @@
 # DRSource
 
-DRSource is a static analysis tool designed to detect vulnerabilities in Java and JSP projects. It combines multiple detection techniques—including regex‑based detection and AST‑based taint propagation analysis—to identify security issues such as SQL Injection, Cross‑Site Scripting (XSS), Path Traversal, Command Injection, Serialization Issues, LDAP Injection, XXE, SSRF, and unsafe cryptographic/hashing functions.
+DRSource is an extensible, multi-language static analysis tool designed to
+detect vulnerabilities in source code. It uses a pluggable architecture to
+combine multiple detection techniques—from simple regex matching to advanced
+AST-based taint analysis—all driven by a central, user-configurable knowledge
+base.
+
+It identifies security issues such as SQL Injection, Cross-Site Scripting (XSS),
+Command Injection, Hardcoded Secrets, and many others across all supported
+languages in a single, unified scan.
 
 ## Features
 
-- **Regex‑Based Detection**  
-  Utilizes carefully crafted regular expressions to identify known vulnerability patterns in source code.
+- Extensible Plugin Architecture The scanner automatically discovers and runs
+  all available analyzer plugins. This allows new languages (e.g., Python, Go)
+  and new analysis techniques (e.g., control-flow analysis) to be added without
+  changing the corFeatures
+- Centralized Knowledge Base All rules—from simple regex patterns to complex AST
+  sources and sinks for taint analysis—are defined in a single, human-readable
+  knowledge_base.yaml file. This makes it easy to add or customize rules for any
+  supported language.
 
-- **AST‑Based Taint Analysis**  
-  Leverages [javalang](https://github.com/c2nes/javalang) to parse Java source files into an Abstract Syntax Tree (AST) and performs forward data‑flow analysis to propagate taint from user input sources (e.g., `request.getParameter`) to sensitive sinks (e.g., `executeQuery`).
+- Multi-Engine Analysis (in one scan) DRSource runs all plugins simultaneously,
+  giving you a complete picture of your codebase:
 
-- **Data‑Flow Analysis Framework**  
-  A simplified yet robust framework that tracks tainted variables through declarations and assignments to flag dangerous data flows.
+  - Regex Engine: Uses a high-speed, general-purpose regex plugin to find known
+    vulnerability patterns and hardcoded secrets in any file type.
 
-- **Multi‑Detector Support**  
-  Detects various vulnerabilities including:
-  - SQL Injection
-  - Cross‑Site Scripting (XSS)
-  - Path Traversal
-  - Command Injection
-  - Serialization Issues
-  - LDAP Injection
-  - XXE (XML External Entity) Attacks
-  - SSRF (Server-Side Request Forgery)
-  - Unsafe Crypto/Hashing functions
+  - AST Taint Engine: Performs deep data-flow analysis by parsing code into an
+    Abstract Syntax Tree (AST) to track taint from user input sources (e.g.,
+    request.getParameter) to sensitive sinks (e.g., executeQuery).
 
-- **Parallel Scanning & Progress Bar**  
-  Files are scanned in parallel with a progress bar for faster analysis on large codebases.
+- Persistent Database & Scan Comparison All findings are stored in a local
+  SQLite database, allowing you to:
 
-- **Robust CLI**  
-  The command‑line interface offers options to:
-  - Initialize the database (`--init-db`)
-  - View scan history (`--history`)
-  - Compare scans (`--compare`)
-  - Export results in SARIF, JSON, or HTML formats (`--export`)
-  - Enable AST‑based detection (`--ast`)
-  - Enable debug logging (`--debug`)
-  - Display version information (`--version`)
+  - View scan history (--history).
+  - Compare scans to find new, resolved, and persistent vulnerabilities
+    (--compare).
+
+- Robust CLI & Reporting The command-line interface offers powerful options,
+  including:
+  - Database initialization (--init-db).
+  - Exporting results in multiple formats (--export [sarif|json|ascii]).
+  - Taint-flow visualization (--show-trace).
 
 ## Installation
 
 Clone the repository and navigate to the project root:
 
-```bash
+```sh
 git clone https://github.com/thesp0nge/dr_source.git
 cd dr_source
 ```
 
-Install the package in editable mode:
+Install the package (and all dependencies) in editable mode:
 
-```bash
-pip install --editable .
+```sh
+ pip install --editable .
 ```
+
+This automatically registers all core plugins (JavaAstAnalyzer, RegexAnalyzer)
+so the scanner can find them.
 
 ## Usage
 
-Run dr_source using the CLI:
+Run dr_source against any source code directory. It will automatically detect
+all file types and run the appropriate analyzer plugins.
 
-```bash
+```sh
 dr_source [OPTIONS] TARGET_PATH
 ```
 
 ### Options
 
-- TARGET_PATH: The path of the codebase (directory containing Java/JSP files) to analyze.
+- TARGET_PATH: The path of the codebase to analyze.
 - --init-db: Initialize the database from scratch (drops and recreates tables).
 - --history: Display the scan history for the project.
 - --compare <ID>: Compare the latest scan with a previous scan specified by ID.
-- --export [sarif|json|html]: Export scan results in the specified format.
-- --ast: Enable AST‑based detection (in addition to regex‑based detection).
+- --export [sarif|json|ascii]: Export scan results in the specified format.
+- --output <FILE>: Output file for the exported report.
+- --show-trace: Display the full data-flow trace for AST-based vulnerabilities.
 - --debug: Enable debug logging.
-- --version: Show DRSource version (as defined in setup.py) and exit.
+- --version: Show DRSource version and exit.
 
-### Examples
+## Examples
 
-- Scan a Codebase Using AST‑Based Detection with Debug Logging:
+- Run a Standard Scan This one command runs all plugins (Regex, AST, etc.) on
+  the codebase.
 
-```bash
-dr_source --ast --debug /path/to/codebase
+```sh
+dr_source /path/to/my-project
 ```
 
-- Initialize the Database:
+- Export Results as SARIF (Ideal for uploading to GitHub Security)
 
-```bash
-dr_source --init-db /path/to/codebase
+```sh
+dr_source --export sarif --output findings.sarif /path/to/my-project
 ```
 
-- Export Results as SARIF:
+- View Taint Traces
 
-```bash
-dr_source --export sarif /path/to/codebase
+```sh
+dr_source --show-trace /path/to/my-project
 ```
 
-- Run a scan using AST-Based detection engine and create a ascii table with
-vulnerabilities:
+- Initialize the database
 
-```bash
-dr_source --ast /path/to/codebase --export ascii --output report.txt
+```sh
+dr_source --init-db /path/to/my-project
 ```
 
 ## Contributing
 
-Contributions are welcome! To contribute:
+Contributions are welcome! With the new architecture, there are two main ways to
+contribute:
 
-- Fork the repository.
-- Create a new branch for your feature or bugfix.
-- Make your changes with clear commit messages.
-- Submit a pull request for review.
-- For major changes, please open an issue first to discuss your proposed changes.
+1. Add/Improve a Rule:
+
+- Simply edit the dr_source/config/knowledge_base.yaml file to add a new regex
+  pattern or an AST sink/source.
+
+2. Add a New Plugin:
+
+- Create a new plugin package (e.g., dr_source/plugins/python/).
+- Write your new analyzer class (e.g., PythonAstAnalyzer) that implements the
+  AnalyzerPlugin API.
+- Register your new plugin in the entry_points section of setup.py.
+
+For all contributions, please fork the repository, create a new branch, and
+submit a pull request.
 
 ## License
 
@@ -115,5 +136,6 @@ dr_source is licensed under the MIT License.
 
 ## Acknowledgments
 
-Special thanks to the maintainers of [javalang](https://github.com/c2nes/javalang) for their work on Java AST parsing.
-Inspired by various static analysis and security tools.
+Special thanks to the maintainers of
+[javalang](https://github.com/c2nes/javalang) for their work on Java AST
+parsing, which powers the Java taint analysis plugin.

@@ -19,7 +19,6 @@ except ImportError:
 
 @click.command(context_settings=dict(ignore_unknown_options=True))
 @click.argument("target_path", required=False, type=click.Path(exists=True))
-@click.option("--ast", is_flag=True, help="Enable AST-based detection.")
 @click.option("--init-db", is_flag=True, help="Initialize the database from scratch.")
 @click.option("--history", is_flag=True, help="Show the scan history for this project.")
 @click.option(
@@ -48,7 +47,6 @@ except ImportError:
 )
 def main(
     target_path,
-    ast,
     init_db,
     history,
     compare,
@@ -61,8 +59,7 @@ def main(
     show_version,
 ):
     """
-    DRSource - A static analysis tool for detecting vulnerabilities in Java/JSP projects.
-
+    DRSource - A multi-language static analysis tool.
     TARGET_PATH is the path of the codebase to analyze.
     """
     if show_version:
@@ -75,7 +72,6 @@ def main(
 
     setup_logging(debug=debug)
 
-    # Se l'opzione --where-used è specificata, esegue solo questa funzione
     if where_used:
         if not target_path:
             ctx = click.get_current_context()
@@ -103,8 +99,7 @@ def main(
         ctx = click.get_current_context()
         ctx.fail("Missing argument 'TARGET_PATH'.")
 
-    project_name = os.path.basename(os.path.abspath(target_path))
-    db = ScanDatabase(project_name)
+    db = ScanDatabase(target_path)
 
     if init_db:
         click.echo("Initializing database...")
@@ -113,7 +108,7 @@ def main(
         return
 
     if history:
-        click.echo(f"Scan history for '{project_name}':")
+        click.echo(f"Scan history for '{target_path}':")
         history_records = db.get_scan_history()
         if not history_records:
             click.echo("No scan history found.")
@@ -149,46 +144,48 @@ def main(
                     click.echo(f"  - {vuln}")
         return
 
-    start_time = time.time()
     click.echo(f"Starting scan on {target_path}...")
-    if ast:
-        click.echo("Using AST-based detection mode.")
-    else:
-        click.echo("Using regex-based detection mode.")
 
-    codebase = Codebase(target_path)
-    codebase.load_files()
-    scanner = Scanner(codebase, ast_mode=ast)
-    results = scanner.scan()
+    # 1. Instantiate and run the new scanner
+    scanner = Scanner(target_path=target_path)
+    scanner.scan()  # This does everything
 
-    scan_duration = time.time() - start_time
-    num_files = len(codebase.files)
-    num_vulns = len(results)
+    # 2. Get results back from the scanner's DB instance
+    #    (We need to fetch them for reporting)
+    scan_id = scanner.scan_id
+    results_list_of_dicts = scanner.db.get_vulnerabilities_for_scan(scan_id)
+
+    num_vulns = len(results_list_of_dicts)
+    num_files = scanner.num_files_analyzed
+    scan_duration = scanner.scan_duration
+
     click.echo(
         f"Scan completed: {num_files} files analyzed, {num_vulns} vulnerabilities found in {scan_duration:.2f} seconds."
     )
 
-    scan_id = db.start_scan()
-    db.store_vulnerabilities(scan_id, results)
-    db.update_scan_summary(scan_id, num_vulns, num_files, scan_duration)
-
+    # 3. Reporting logic (now works with 'results_list_of_dicts')
     if export:
+        project_name = scanner.db.project_name  # Get sanitized name
         out_file = output if output else f"{project_name}_scan_{scan_id}.{export}"
+
         if export == "sarif":
             reporter = SARIFReport()
-            report_content = reporter.generate(results)
+            report_content = reporter.generate(results_list_of_dicts)
             with open(out_file, "w") as f:
                 f.write(report_content)
             click.echo(f"Results exported to {out_file}")
+
         elif export == "json":
             with open(out_file, "w") as f:
-                json.dump(results, f, indent=2)
+                json.dump(results_list_of_dicts, f, indent=2)
             click.echo(f"Results exported to {out_file}")
+
         elif export == "html":
             click.echo("HTML export not yet implemented.")
+
         elif export == "ascii":
             reporter = ASCIIReport()
-            report_content = reporter.generate(results)
+            report_content = reporter.generate(results_list_of_dicts)
             if output:
                 with open(out_file, "w") as f:
                     f.write(report_content)
@@ -196,13 +193,17 @@ def main(
             else:
                 click.echo(report_content)
     else:
-        for res in results:
+        # 4. Standard console output
+        #    (Updated to use new dict keys and --show-trace)
+        for res in results_list_of_dicts:
             output_line = (
-                f"[{res['vuln_type']}] {res['file']}:{res['line']} -> {res['match']}"
+                f"[{res.get('severity', 'N/A')}][{res.get('vuln_type')}] "
+                f"{res.get('file')}:{res.get('line')} -> {res.get('match')}"
             )
-            if show_trace and "trace" in res and res["trace"]:
-                output_line += "\n    Trace: " + " -> ".join(res["trace"])
             click.echo(output_line)
+
+            if show_trace and res.get("trace"):
+                click.echo("    Trace: " + " -> ".join(res["trace"]))
 
 
 if __name__ == "__main__":

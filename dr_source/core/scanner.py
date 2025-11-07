@@ -27,6 +27,11 @@ class Scanner:
         # This will hold { ".java": [JavaPlugin], ".*": [RegexPlugin], ... }
         self.extension_map: Dict[str, List[AnalyzerPlugin]] = {}
 
+        self.scan_id: int = -1
+        self.num_files_analyzed: int = 0
+        self.scan_duration: float = 0.0
+        self.all_findings: List[Vulnerability] = []
+
         self.load_plugins()
 
     def load_plugins(self):
@@ -69,7 +74,7 @@ class Scanner:
         start_time = time.time()
 
         all_findings_dataclass: List[Vulnerability] = []
-        num_files_analyzed = 0
+        num_files_scanned = 0
 
         for root, _, files in os.walk(self.target_path):
             for file in files:
@@ -82,7 +87,7 @@ class Scanner:
                 if not plugins_to_run:
                     continue
 
-                num_files_analyzed += 1
+                num_files_scanned += 1
                 for plugin in plugins_to_run:
                     try:
                         # 2. Collect findings as dataclasses
@@ -100,6 +105,9 @@ class Scanner:
                     "vuln_type": vuln.vulnerability_type,
                     "match": vuln.message,  # DB 'details' col maps to 'match' key
                     "line": vuln.line_number,
+                    "severity": vuln.severity,
+                    "plugin_name": vuln.plugin_name,
+                    "trace": " -> ".join(vuln.trace),
                 }
             )
 
@@ -112,11 +120,15 @@ class Scanner:
 
         # 5. Update the scan summary
         scan_duration = time.time() - start_time
+        self.num_files_analyzed = num_files_scanned
+        self.scan_duration = scan_duration
+        self.all_findings = all_findings_dataclass
+
         self.db.update_scan_summary(
             scan_id,
             num_vulnerabilities=len(all_findings_dict),
-            num_files_analyzed=num_files_analyzed,
+            num_files_analyzed=self.num_files_analyzed,
             scan_duration=scan_duration,
         )
 
-        logger.info(f"Scan complete. Found {len(all_findings_dict)} vulnerabilities.")
+        # logger.info(f"Scan complete. Found {len(all_findings_dict)} vulnerabilities.")
