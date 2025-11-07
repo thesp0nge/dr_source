@@ -18,7 +18,7 @@ setup(
     zip_safe=False,
     scripts=["bin/dr_source"],
     author="Paolo Perego",
-    description="Java and JSP Vulnerability Static Analyzer",
+    description="DRSource is an extensible, multi-language static analysis tool designed to detect vulnerabilities in source code.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
 )
