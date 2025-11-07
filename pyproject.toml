@@ -1,0 +1,44 @@
+# This section defines the build system (PEP 517)
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# This section is your project's metadata (PEP 621)
+# It replaces most of setup.py
+[project]
+name = "dr_source"
+version = "0.90.1"
+description = "A plugin-driven, multi-language SAST."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "thesp0nge" }
+]
+requires-python = ">=3.9" # Set a reasonable minimum
+
+# This replaces your requirements.txt
+# Add any other dependencies you have.
+dependencies = [
+    "click",
+    "pyyaml",
+    "platformdirs",
+    "javalang",
+    "tabulate",
+    "importlib-metadata; python_version < '3.10'" # For the version fallback in cli.py
+]
+
+# This creates the 'dr_source' command
+# It replaces your bin/dr_source script
+[project.scripts]
+dr_source = "dr_source.cli:main"
+
+# This is where we register our plugins
+[project.entry-points."dr_source.plugins"]
+java_ast = "dr_source.plugins.java.plugin:JavaAstAnalyzer"
+regex_all = "dr_source.plugins.regex.plugin:RegexAnalyzer"
+
+# This section configures setuptools (replaces find_packages())
+[tool.setuptools.packages.find]
+where = ["."] # Search for packages in the root
+include = ["dr_source*"] # Find dr_source and all its sub-packages
+exclude = ["tests*"] # Exclude tests from the package

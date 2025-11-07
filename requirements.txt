@@ -1,8 +1,0 @@
-click
-javalang
-beautifulsoup4
-scikit-learn
-PyYAML
-tqdm
-networkx
-platformdirs
