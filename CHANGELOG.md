@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.95.0] - 2025-11-10
+
+### Added
+
+- New Python AST Analyzer Plugin: Added a new, fully-featured PythonAstAnalyzer
+  plugin to support multi-language taint analysis.
+- Python Taint Propagation: The new Python visitor (PythonTaintVisitor) supports
+  taint propagation through:
+- Variable assignments (a = b)
+- Binary Operations ("ping " + tainted_var)
+- F-strings (f"SELECT \* FROM {tainted_var}")
+- Python Test Suite: Added a complex test suite (complex_vulnerable_app.py) to
+  validate Python taint propagation for SQLi and Command Injection.
+- Modern Packaging: Migrated the entire project from setup.py and
+  requirements.txt to a single, modern pyproject.toml file (PEP 621).
+
+### Changed
+
+- Knowledge Base: Massively expanded knowledge_base.yaml to include
+  Python-specific ast_sources and ast_sinks for all relevant vulnerability
+  categories.
+
+- Knowledge Base: Added dozens of new Python-specific regex_patterns for all
+  vulnerability types (e.g., SSRF, XSS, Weak Crypto, Insecure Cookies).
+
+- Python AST Visitor: The PythonTaintVisitor's \_get_full_call_name helper was
+  made more robust to accurately find fully-qualified function calls (e.g.,
+  request.args.get) and minimize false positives.
+
+### Removed
+
+- setup.py: This file is now obsolete and has been replaced by pyproject.toml.
+- requirements.txt: Project dependencies are now managed in pyproject.toml.
+- bin/dr_source: The CLI entry point is now defined in pyproject.toml under
+  [project.scripts].
+
 ## [0.90.1] - 2025-11-07
 
 ### Changed
