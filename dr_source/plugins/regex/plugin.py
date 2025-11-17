@@ -1,11 +1,35 @@
 import re
+import os
 import logging
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Dict
 
-from dr_source.api import AnalyzerPlugin, Vulnerability
+from dr_source.api import AnalyzerPlugin, Vulnerability, Severity
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
 
 logger = logging.getLogger(__name__)
+
+
+def _to_severity(sev_str: str) -> Severity:
+    """Validates and casts a string to the Severity literal type."""
+    sev_upper = sev_str.upper()
+    if sev_upper in ("HIGH", "MEDIUM", "LOW", "INFO"):
+        # We know it's a valid literal, but pyright doesn't,
+        # so we use type: ignore
+        return sev_upper  # type: ignore
+
+    logger.warning(
+        f"Invalid severity '{sev_str}' in knowledge base. Defaulting to INFO."
+    )
+    return "INFO"
+
+
+# Maps file extensions to the language name used in the Knowledge Base
+EXTENSION_TO_LANG_MAP: Dict[str, str] = {
+    ".py": "python",
+    ".java": "java",
+    ".php": "php",
+    ".rb": "ruby",
+}
 
 
 class RegexAnalyzer(AnalyzerPlugin):
@@ -16,32 +40,44 @@ class RegexAnalyzer(AnalyzerPlugin):
 
     def __init__(self):
         self.kb = KnowledgeBaseLoader()
-        self.compiled_rules: List[Tuple[Any, str, str, str]] = []
+        self.general_rules: List[Tuple[Any, str, str, str, str]] = []
+        self.lang_rules: Dict[str, List[Tuple[Any, str, str, str, str]]] = {}
         self._compile_rules()
 
     def _compile_rules(self):
         """
-        Loads and compiles all regex rules from the KB for
-        all vulnerability types and all languages.
+        Loads and compiles all regex rules from the KB into
+        their appropriate "general" or "language-specific" bucket.
         """
         for vuln_type, vuln_data in self.kb.rules.items():
             top_severity = vuln_data.get("severity", "MEDIUM")
 
-            # 1. Get general regex patterns
-            patterns = vuln_data.get("general_regex_patterns", [])
-            self._compile_and_store(patterns, vuln_type, top_severity)
+            # 1. Compile general rules
+            general_patterns = vuln_data.get("general_regex_patterns", [])
+            if general_patterns:
+                self._compile_and_store(
+                    general_patterns, vuln_type, top_severity, "general"
+                )
 
-            # 2. Get language-specific regex patterns
-            for lang_data in vuln_data.get("language_specific", {}).values():
+            # 2. Compile language-specific rules
+            for lang_name, lang_data in vuln_data.get("language_specific", {}).items():
                 lang_patterns = lang_data.get("regex_patterns", [])
-                self._compile_and_store(lang_patterns, vuln_type, top_severity)
+                if lang_patterns:
+                    self._compile_and_store(
+                        lang_patterns, vuln_type, top_severity, lang_name
+                    )
 
         logger.info(
-            f"RegexAnalyzer loaded and compiled {len(self.compiled_rules)} rules."
+            f"RegexAnalyzer loaded and compiled {len(self.general_rules)} general rules "
+            f"and {sum(len(v) for v in self.lang_rules.values())} language-specific rules."
         )
 
     def _compile_and_store(
-        self, pattern_list: List[dict], vuln_type: str, default_severity: str
+        self,
+        pattern_list: List[dict],
+        vuln_type: str,
+        default_severity: str,
+        lang_name: str,  # <-- The new bucket key ("general", "python", "java")
     ):
         """Helper to compile and store a list of regex rules."""
         for rule in pattern_list:
@@ -49,14 +85,17 @@ class RegexAnalyzer(AnalyzerPlugin):
                 pattern = rule["pattern"].strip()
                 message = rule["message"]
                 rule_id = rule["id"]
-                # Allow rule-specific severity to override top-level
                 severity = rule.get("severity", default_severity).upper()
 
                 compiled_regex = re.compile(pattern, re.DOTALL | re.MULTILINE)
+                rule_tuple = (compiled_regex, message, severity, vuln_type, rule_id)
 
-                self.compiled_rules.append(
-                    (compiled_regex, message, severity, vuln_type, rule_id)
-                )
+                if lang_name == "general":
+                    self.general_rules.append(rule_tuple)
+                else:
+                    if lang_name not in self.lang_rules:
+                        self.lang_rules[lang_name] = []
+                    self.lang_rules[lang_name].append(rule_tuple)
             except re.error as e:
                 logger.warning(
                     f"Failed to compile regex rule {rule_id} for {vuln_type}: {e}"
@@ -76,25 +115,34 @@ class RegexAnalyzer(AnalyzerPlugin):
 
     def analyze(self, file_path: str) -> List[Vulnerability]:
         """
-        Scans the *entire file content* against all compiled regex rules.
+        Scans the *entire file content* against all compiled regex rules
+        that apply to this file's language.
         """
         findings = []
+        _, ext = os.path.splitext(file_path)
+        lang_name = EXTENSION_TO_LANG_MAP.get(ext)
+
+        # 1. Start with the general rules
+        rules_to_run = self.general_rules.copy()
+
+        # 2. Add the language-specific rules
+        if lang_name:
+            rules_to_run.extend(self.lang_rules.get(lang_name, []))
+
+        if not rules_to_run:
+            return []  # No regex rules for this file type
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
-            content_lines = [None] + content.splitlines()
-
-            for regex, msg, sev, v_type, r_id in self.compiled_rules:
-                # Use finditer to find all matches in the file
+            for regex, msg, sev, v_type, r_id in rules_to_run:
                 for match in regex.finditer(content):
-                    # Calculate the line number of the match
                     line_number = self._get_line_number(content, match.start())
 
                     findings.append(
                         Vulnerability(
                             vulnerability_type=v_type,
                             message=f"({r_id}) {msg}",
-                            severity=sev,
+                            severity=_to_severity(sev),
                             file_path=file_path,
                             line_number=line_number,
                             plugin_name=self.name,

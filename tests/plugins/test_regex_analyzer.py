@@ -10,6 +10,8 @@ TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEST_FILE_CONFIG = os.path.join(TEST_DIR, "test_code", "misc", "vulnerable_config.ini")
 TEST_FILE_JAVA = os.path.join(TEST_DIR, "test_code", "java", "RegexSqli.java")
 
+TEST_FILE_PYTHON_LURE = os.path.join(TEST_DIR, "test_code", "python", "regex_lure.py")
+
 
 class TestRegexAnalyzer(unittest.TestCase):
     def setUp(self):
@@ -76,3 +78,19 @@ class TestRegexAnalyzer(unittest.TestCase):
         self.assertIn(
             "JAVA-SQLI-002", sqli_finding.message
         )  # Check for the specific rule ID
+
+    def test_java_rules_do_not_run_on_python_files(self):
+        """
+        Tests that language-specific rules (Java) are NOT run
+        against files of a different language (Python).
+        This proves our optimization is working.
+        """
+        findings = self.analyzer.analyze(TEST_FILE_PYTHON_LURE)
+
+        # We expect ZERO findings, because the only vulnerable string
+        # in this file is from a Java rule, which should not be run.
+        self.assertEqual(
+            len(findings),
+            0,
+            f"Found findings in a .py file using Java rules: {findings}",
+        )

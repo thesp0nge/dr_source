@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.95.1] - 2025-11-17
+
+### Changed
+
+Optimized the RegexAnalyzer to be language-aware. It now loads rules into
+language-specific buckets (e.g., .py, .java) and only runs the relevant rules
+for each file.
+
+### Fixed
+
+Fixed a bug where the RegexAnalyzer would run language-specific rules (e.g., for
+Java) against all file types, which could lead to false positives and poor
+performance. This is confirmed by a new test case
+(test_java_rules_do_not_run_on_python_files).
+
 ## [0.95.0] - 2025-11-10
 
 ### Added
