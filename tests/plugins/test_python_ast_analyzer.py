@@ -46,6 +46,13 @@ class TestPythonAstAnalyzer(unittest.TestCase):
         self.assertEqual(vuln.severity, "CRITICAL")
         self.assertEqual(vuln.line_number, 34)
 
+        self.assertIsNotNone(vuln.trace, "Vulnerability trace should not be None")
+        self.assertEqual(len(vuln.trace), 2, "Taint trace should have 2 steps")
+
+        # Check the trace steps
+        self.assertIn("Tainted by source 'request.args.get'", vuln.trace[0])
+        self.assertIn("Propagated to 'command'", vuln.trace[1])
+
     def test_finds_sqli_via_fstring(self):
         """
         Tests taint propagation into an f-string (ast.JoinedStr).

@@ -58,7 +58,7 @@ class PythonAstAnalyzer(AnalyzerPlugin):
                         file_path=file_path,
                         line_number=issue["line"],
                         plugin_name=self.name,
-                        # We can add trace logic later
+                        trace=issue.get("trace", []),
                     )
                     findings.append(vuln)
 

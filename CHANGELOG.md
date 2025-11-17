@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.95.2] - 2025-11-17
+
+### Added
+
+Implemented full taint-propagation tracing for the PythonAstAnalyzer. The plugin
+now generates and stores the complete data flow (e.g., "Tainted by source ->
+Propagated to var -> Used in sink").
+
+Added new test cases to test_python_ast_analyzer.py to validate taint
+propagation through string concatenation (BinOp) and f-strings (JoinedStr).
+
+The Vulnerability object in dr_source/api.py now includes a trace: List[str]
+field.
+
+The ScanDatabase schema and Scanner logic have been upgraded to store and
+retrieve taint traces.
+
+### Changed
+
+The PythonTaintVisitor has been significantly upgraded from a simple set to a
+dictionary that tracks the full trace for each tainted variable.
+
+The cli.py output for --show-trace will now work for Python-based findings.
+
 ## [0.95.1] - 2025-11-17
 
 ### Changed

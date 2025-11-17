@@ -8,20 +8,16 @@ logger = logging.getLogger(__name__)
 class PythonTaintVisitor(ast.NodeVisitor):
     """
     Walks the Python AST to find taint flows from
-    fully-qualified sources to fully-qualified sinks.
-
-    The ast.NodeVisitor base class handles the tree traversal (recursion).
-    We just implement the 'visit_...' methods for the nodes we care about.
+    sources to sinks, tracking the full propagation trace.
     """
 
     def __init__(self, source_list: List[str], sink_list: List[str]):
         self.sources = set(source_list)
         self.sinks = set(sink_list)
-        self.tainted_vars: Set[str] = set()
+        self.tainted_vars: Dict[str, List[str]] = {}
         self.vulnerabilities: List[Dict[str, Any]] = []
 
     def _get_full_call_name(self, node: ast.Call) -> str:
-        # (This helper method is correct, no changes)
         def resolve_attribute(attr_node: ast.Attribute) -> str:
             value = attr_node.value
             if isinstance(value, ast.Name):
@@ -57,13 +53,13 @@ class PythonTaintVisitor(ast.NodeVisitor):
 
     def visit_Assign(self, node: ast.Assign):
         """
-        Called when the NodeVisitor visits an Assignment node.
+        Handles Taint Source and Taint Propagation.
         """
         target_var = ""
         if node.targets and isinstance(node.targets[0], ast.Name):
             target_var = node.targets[0].id
         if not target_var:
-            self.generic_visit(node)  # We MUST call this if we don't handle the node
+            self.generic_visit(node)
             return
 
         # 1. Taint Source
@@ -71,18 +67,21 @@ class PythonTaintVisitor(ast.NodeVisitor):
             func_name = self._get_full_call_name(node.value)
             if func_name in self.sources:
                 logger.debug(f"Tainted variable '{target_var}' from source {func_name}")
-                self.tainted_vars.add(target_var)
-
+                self.tainted_vars[target_var] = [
+                    f"Tainted by source '{func_name}' at line {node.lineno}"
+                ]
         # 2. Taint Propagation
         else:
             value_ids = self._get_ids_from_node(node.value)
             for var_id in value_ids:
                 if var_id in self.tainted_vars:
                     logger.debug(f"Propagating taint to '{target_var}' from '{var_id}'")
-                    self.tainted_vars.add(target_var)
+                    new_trace = self.tainted_vars[var_id] + [
+                        f"Propagated to '{target_var}' at line {node.lineno}"
+                    ]
+                    self.tainted_vars[target_var] = new_trace
                     break
 
-        # --- FIX: We call generic_visit to ensure children are visited ---
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call):
@@ -112,9 +111,9 @@ class PythonTaintVisitor(ast.NodeVisitor):
                     {
                         "sink": func_name,
                         "variable": found_var,
-                        "line": node.lineno,  # This will now be correct
+                        "line": node.lineno,
+                        "trace": self.tainted_vars[found_var],
                     }
                 )
 
-        # --- FIX: We call generic_visit to ensure children are visited ---
         self.generic_visit(node)
