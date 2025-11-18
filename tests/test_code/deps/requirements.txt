@@ -1,0 +1,2 @@
+# A vulnerable version of requests
+requests==2.19.0
