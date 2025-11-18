@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.96.1] - 2025-11-18
+
+### Fixed
+
+Java AST Analyzer Crash: Fixed an AttributeError in the Java taint visitor where
+Assignment nodes were accessing the non-existent expression attribute. Updated
+logic to use the correct javalang attribute expressionl.
+
+Taint Detection Logic: Fixed a TypeError in TaintDetector by correctly passing
+the AST tree to the get_vulnerabilities method.
+
 ## [0.96.0] - 2025-11-18
 
 ### Added

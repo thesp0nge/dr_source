@@ -14,14 +14,15 @@ class TaintDetector:
         sink_list: List[str],
         vuln_prefix: str,
     ) -> List[Dict[str, Any]]:
-        # 1. Create the visitor with *both* lists
+        # 1. Create the visitor with both lists
         visitor = TaintVisitor(source_list, sink_list)
 
-        # 2. Run the single-pass visit
+        # 2. Run the visit to identify tainted variables
         visitor.visit(ast_tree)
 
-        # 3. Get the results
-        vulns = visitor.get_vulnerabilities()
+        # 3. Get the results by checking sinks against the AST
+        vulns = visitor.get_vulnerabilities(ast_tree)
+        # -------------------------------
 
         results = []
         for v in vulns:
