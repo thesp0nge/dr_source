@@ -22,7 +22,7 @@ class TestJavaAstAnalyzer(unittest.TestCase):
 
     def test_plugin_metadata(self):
         """Tests the plugin's name and supported extensions."""
-        self.assertEqual(self.analyzer.name, "Java AST Analyzer")
+        self.assertEqual(self.analyzer.name, "Java AST Analyzer (Tree-sitter)")
         self.assertIn(".java", self.analyzer.get_supported_extensions())
 
     def test_sql_injection_finding(self):
@@ -41,7 +41,7 @@ class TestJavaAstAnalyzer(unittest.TestCase):
         self.assertEqual(vuln.vulnerability_type, "SQL_INJECTION (AST Taint)")
         self.assertEqual(vuln.file_path, self.vulnerable_file)
         self.assertEqual(vuln.severity, "HIGH")
-        self.assertEqual(vuln.plugin_name, "Java AST Analyzer")
+        self.assertEqual(vuln.plugin_name, "Java AST Analyzer (Tree-sitter)")
         # self.assertEqual(vuln.line_number, 15) # Be specific if you can
 
     def test_no_finding_in_safe_file(self):
