@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # It replaces most of setup.py
 [project]
 name = "dr_source"
-version = "0.95.2"
+version = "0.96.0"
 description = "A plugin-driven, multi-language SAST."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -24,7 +24,8 @@ dependencies = [
     "platformdirs",
     "javalang",
     "tabulate",
-    "importlib-metadata; python_version < '3.10'" # For the version fallback in cli.py
+    "importlib-metadata; python_version < '3.10'", # For the version fallback in cli.py
+    "pip-audit"
 ]
 
 # This creates the 'dr_source' command
@@ -36,6 +37,8 @@ dr_source = "dr_source.cli:main"
 [project.entry-points."dr_source.plugins"]
 java_ast = "dr_source.plugins.java.plugin:JavaAstAnalyzer"
 regex_all = "dr_source.plugins.regex.plugin:RegexAnalyzer"
+python_ast = "dr_source.plugins.python.plugin:PythonAstAnalyzer"
+dependency = "dr_source.plugins.dependency.plugin:DependencyAnalyzer"
 
 # This section configures setuptools (replaces find_packages())
 [tool.setuptools.packages.find]
