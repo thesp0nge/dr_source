@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.96.0] - 2025-11-18
+
+### Added
+
+New DependencyAnalyzer Plugin: Added a dedicated plugin for Software Composition
+Analysis (SCA) to detect known vulnerabilities in third-party dependencies.
+
+Python Dependency Scanning: Support for scanning requirements.txt files. Uses
+pip-audit to check packages against the PyPI/OSV vulnerability database.
+
+Java Dependency Scanning: Support for scanning Maven pom.xml files. It parses
+dependencies via xml.etree and queries the OSV (Open Source Vulnerability) API
+directly to find CVEs.
+
+pip-audit Dependency: Added pip-audit to the project dependencies in
+pyproject.toml.
+
 ## [0.95.2] - 2025-11-17
 
 ### Added
