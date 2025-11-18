@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.97.0] - 2025-11-18
+
+### Changed
+
+Major Refactor: The JavaAstAnalyzer plugin has been completely rewritten to use
+Tree-sitter instead of javalang. This provides robust support for modern Java
+features (Java 10+ var, text blocks, records, etc.) that previously caused
+scanning errors.
+
+Dependency: Replaced javalang with tree-sitter and tree-sitter-java for Java
+parsing.
+
+### Fixed
+
+Java Parsing Errors: Fixed recurring "Could not parse Java file" errors on
+modern Java codebases.
+
+Taint Tracking Accuracy: Fixed logic in TaintVisitor to correctly normalize
+source/sink names from the Knowledge Base (e.g., handling request.getParameter
+vs getParameter), ensuring vulnerabilities are not missed due to naming
+mismatches.
+
+Stability: Resolved multiple AttributeError and TypeError crashes in the Java
+taint analysis engine (Assignment node handling, missing arguments).
+
 ## [0.96.1] - 2025-11-18
 
 ### Fixed

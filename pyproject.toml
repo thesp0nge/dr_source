@@ -25,7 +25,9 @@ dependencies = [
     "javalang",
     "tabulate",
     "importlib-metadata; python_version < '3.10'", # For the version fallback in cli.py
-    "pip-audit"
+    "pip-audit", 
+    "tree-sitter", 
+    "tree-sitter-java",
 ]
 
 # This creates the 'dr_source' command

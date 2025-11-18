@@ -1,183 +1,134 @@
-import javalang
 import logging
-from javalang.tree import (
-    Node,
-    VariableDeclarator,
-    MethodInvocation,
-    BinaryOperation,
-    Assignment,
-    MemberReference,
-)
 from typing import List, Dict, Any, Set, Optional
+from tree_sitter import Node
 
 logger = logging.getLogger(__name__)
 
 
 class TaintVisitor:
-    """
-    Visits the Java AST to find variables tainted by insecure sources
-    and checks if they are used in dangerous sinks.
-    This class uses a recursive 'visit' method.
-    """
-
-    def __init__(self, source_list: List[str], sink_list: List[str]):
-        """
-        Initializes the visitor with dynamic sources and sinks from the KB.
-        """
+    def __init__(
+        self, source_list: List[str], sink_list: List[str], source_code: bytes
+    ):
         self.tainted: Dict[str, Dict[str, Any]] = {}
         self.vulnerabilities: List[Dict[str, Any]] = []
-        self.sinks = sink_list  # Store sinks for later use
+        self.sinks = set(sink_list)
+        self.sources = set(source_list)
+        self.code = source_code
 
-        self.processed_sources: Set[tuple] = set()
-        for source in source_list:
-            if "." in source:
-                parts = source.split(".")
-                self.processed_sources.add((parts[0], parts[-1]))
+        self.sources = set()
+        for s in source_list:
+            if "." in s:
+                self.sources.add(s.split(".")[-1])  # Take the last part
             else:
-                self.processed_sources.add((None, source))
+                self.sources.add(s)
+
+    def get_text(self, node: Node) -> str:
+        if not node:
+            return ""
+        return self.code[node.start_byte : node.end_byte].decode("utf-8")
 
     def collect_identifiers(self, node: Node) -> Set[str]:
-        """
-        Recursively collects all variable names (MemberReference)
-        from a given AST node and its children.
-        """
         ids = set()
         if node is None:
             return ids
-
-        # 1. Base Case: The node itself is a variable
-        if isinstance(node, MemberReference):
-            ids.add(node.member)  # type: ignore
-
-        # 2. Recursive Step: Walk all children
-        if hasattr(node, "children"):
-            for child in node.children:
-                if isinstance(child, list):
-                    for item in child:
-                        if isinstance(item, Node):
-                            ids.update(self.collect_identifiers(item))
-                elif isinstance(child, Node):
-                    ids.update(self.collect_identifiers(child))
-
+        if node.type == "identifier":
+            ids.add(self.get_text(node))
+        for child in node.children:
+            ids.update(self.collect_identifiers(child))
         return ids
 
+    def get_method_name(self, node: Node) -> str:
+        name_node = node.child_by_field_name("name")
+        if name_node:
+            return self.get_text(name_node)
+        return ""
+
+    def get_method_qualifier(self, node: Node) -> str:
+        object_node = node.child_by_field_name("object")
+        if object_node:
+            return self.get_text(object_node)
+        return ""
+
     def visit(self, node: Node):
-        """
-        Recursively visits the AST and propagates taint.
-        """
         if node is None:
             return
 
-        # 1. Taint Source: A variable is declared and initialized from a source
-        if (
-            isinstance(node, VariableDeclarator) and node.initializer is not None  # type: ignore
-        ):
-            if isinstance(node.initializer, MethodInvocation):  # type: ignore
-                qualifier = getattr(node.initializer, "qualifier", None)
-                member = getattr(node.initializer, "member", None)
+        # 1. Variable Declaration
+        if node.type == "variable_declarator":
+            name_node = node.child_by_field_name("name")
+            value_node = node.child_by_field_name("value")
 
-                if (qualifier, member) in self.processed_sources:
-                    pos = node.position.line if node.position else "unknown"
-                    self.tainted[node.name] = {  # type: ignore
-                        "source": f"{qualifier}.{member}",
-                        "trace": [
-                            f"Variable '{node.name}' tainted by source {qualifier}.{member}() at line {pos}"  # type: ignore
-                        ],
-                    }
-                    logger.debug(
-                        "Variable '%s' marked as tainted (source: %s)",
-                        node.name,  # type: ignore
-                        f"{qualifier}.{member}",
-                    )
+            if name_node and value_node:
+                var_name = self.get_text(name_node)
 
-            # 2. Taint Propagation: A variable is initialized from a binary operation
-            elif isinstance(node.initializer, BinaryOperation):  # type: ignore
-                # This will now correctly find 'userId'
-                ids = self.collect_identifiers(node.initializer)  # type: ignore
+                if value_node.type == "method_invocation":
+                    method_name = self.get_method_name(value_node)
+                    if method_name in self.sources:
+                        line = node.start_point[0] + 1
+                        self.tainted[var_name] = {
+                            "source": method_name,
+                            "trace": [f"Tainted by {method_name} at line {line}"],
+                        }
+                else:
+                    ids = self.collect_identifiers(value_node)
+                    for identifier in ids:
+                        if identifier in self.tainted:
+                            line = node.start_point[0] + 1
+                            self.tainted[var_name] = {
+                                "source": self.tainted[identifier]["source"],
+                                "trace": self.tainted[identifier]["trace"]
+                                + [f"Propagated to {var_name}"],
+                            }
+                            break
+
+        # 2. Assignment
+        elif node.type == "assignment_expression":
+            left_node = node.child_by_field_name("left")
+            right_node = node.child_by_field_name("right")
+
+            if left_node and right_node:
+                var_name = self.get_text(left_node)
+                ids = self.collect_identifiers(right_node)
                 for identifier in ids:
                     if identifier in self.tainted:
-                        pos = node.position.line if node.position else "unknown"
-                        self.tainted[node.name] = {  # type: ignore
+                        line = node.start_point[0] + 1
+                        self.tainted[var_name] = {
                             "source": self.tainted[identifier]["source"],
                             "trace": self.tainted[identifier]["trace"]
-                            + [
-                                f"Variable '{node.name}' tainted via binary operation at line {pos}"  # type: ignore
-                            ],
+                            + [f"Propagated to {var_name}"],
                         }
-                        logger.debug(
-                            "Variable '%s' marked as tainted via binary op",
-                            node.name,  # type: ignore
-                        )
                         break
 
-        # 3. Taint Propagation: A variable is assigned a tainted value
-        if isinstance(node, Assignment):
-            # javalang uses 'expressionl' (left side) for Assignment
-            left_side = getattr(node, "expressionl", None)
+        # 3. Sink Check
+        elif node.type == "method_invocation":
+            method_name = self.get_method_name(node)
 
-            if isinstance(left_side, MemberReference):
-                left_var = left_side.member
-
-                right_ids = self.collect_identifiers(node.value)  # type: ignore
-                for rid in right_ids:
-                    if rid in self.tainted:
-                        pos = node.position.line if node.position else "unknown"
-                        self.tainted[left_var] = {
-                            "source": self.tainted[rid]["source"],
-                            "trace": self.tainted[rid]["trace"]
-                            + [
-                                f"Variable '{left_var}' tainted via assignment from '{rid}' at line {pos}"
-                            ],
-                        }
-                        logger.debug(
-                            "Variable '%s' marked as tainted via assignment from '%s'",
-                            left_var,
-                            rid,
-                        )
-                        break
-
-        # Recurse into children
-        if hasattr(node, "children"):
-            for child in node.children:
-                if isinstance(child, list):
-                    for item in child:
-                        if isinstance(item, Node):
-                            self.visit(item)
-                elif isinstance(child, Node):
-                    self.visit(child)
-
-    def get_vulnerabilities(
-        self, ast_tree: Node, sink_list: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Finds all sinks in the tree and checks if they use tainted variables.
-        """
-        self.vulnerabilities = []
-
-        # Use sinks passed here, or fallback to self.sinks initialized in __init__
-        sinks_to_check = sink_list if sink_list is not None else self.sinks
-
-        for _, node in ast_tree:
-            if isinstance(node, MethodInvocation):
-                if node.member in sinks_to_check:  # type: ignore
+            if method_name in self.sinks:
+                args_node = node.child_by_field_name("arguments")
+                if args_node:
                     tainted_args_found = set()
+                    for i in range(args_node.child_count):
+                        arg = args_node.child(i)
+                        ids = self.collect_identifiers(arg)
 
-                    for arg in node.arguments:  # type: ignore
-                        arg_ids = self.collect_identifiers(arg)
-                        for var_name in arg_ids:
+                        for var_name in ids:
                             if var_name in self.tainted:
                                 tainted_args_found.add(var_name)
 
                     for var in tainted_args_found:
+                        line = node.start_point[0] + 1
                         self.vulnerabilities.append(
                             {
-                                "sink": node.member,  # type: ignore
+                                "sink": method_name,
                                 "variable": var,
-                                "line": node.position.line
-                                if node.position
-                                else "unknown",
+                                "line": line,
                                 "trace": self.tainted[var]["trace"],
                             }
                         )
 
+        # Recurse
+        for child in node.children:
+            self.visit(child)
+
+    def get_vulnerabilities(self) -> List[Dict[str, Any]]:
         return self.vulnerabilities
