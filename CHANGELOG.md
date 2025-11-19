@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.98.0] - 2025-11-19
+
+### Added
+
+Progress Bar for Scanning: Implemented the tqdm library to display a real-time
+progress bar during file analysis. This provides immediate user feedback on
+scanning progress and time estimation, preventing the tool from appearing
+"stuck" on large directories.
+
+### Changed
+
+Scanner Refactor: The core Scanner.scan() method was refactored into two
+distinct phases (File Collection and Analysis) to accurately count the total
+number of files to be processed, enabling the progress bar functionality.
+
+Dependencies: Added tqdm to the project dependencies.
+
 ## [0.97.0] - 2025-11-18
 
 ### Changed

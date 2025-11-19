@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # It replaces most of setup.py
 [project]
 name = "dr_source"
-version = "0.97.0"
+version = "0.98.0"
 description = "A plugin-driven, multi-language SAST."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -28,6 +28,7 @@ dependencies = [
     "pip-audit", 
     "tree-sitter", 
     "tree-sitter-java",
+    "tqdm"
 ]
 
 # This creates the 'dr_source' command
