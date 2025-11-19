@@ -4,7 +4,7 @@ import os
 import re
 from datetime import datetime
 from dr_source.api import Vulnerability
-from typing import List
+from typing import List, Dict, Any
 
 
 class ScanDatabase:
@@ -249,3 +249,49 @@ class ScanDatabase:
             results.append(res_dict)
 
         return results
+
+    def list_all_project_scans(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves a summary of all distinct projects (database files) and their latest scan status.
+        """
+        scan_summaries = []
+
+        # 1. Get the list of all project database files
+        db_files = [f for f in os.listdir(self.db_directory) if f.endswith(".db")]
+
+        # 2. Iterate over each project database
+        for db_file in db_files:
+            db_path = os.path.join(self.db_directory, db_file)
+            project_name = db_file.removesuffix(".db")
+
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+
+            # 3. Query the latest and total scan count for this project
+            # Uses MAX(id) to find the latest scan record
+            cursor.execute("""
+                SELECT 
+                    COUNT(id) AS total_scans,
+                    MAX(timestamp) AS last_scanned_at,
+                    MAX(num_vulnerabilities) AS last_vuln_count
+                FROM scans
+            """)
+
+            # Fetch the one row of summary data
+            row = cursor.fetchone()
+
+            if row and row[0] > 0:  # Ensure at least one scan exists
+                scan_summaries.append(
+                    {
+                        "project_name": project_name,
+                        "total_scans": row[0],
+                        "last_scanned_at": row[1],
+                        "last_vuln_count": row[2],
+                    }
+                )
+
+            conn.close()
+
+        # Sort by the most recently scanned project
+        scan_summaries.sort(key=lambda x: x["last_scanned_at"], reverse=True)
+        return scan_summaries

@@ -3,6 +3,9 @@ import click
 import time
 import os
 import json
+
+from tabulate import tabulate
+
 from dr_source.core.codebase import Codebase
 from dr_source.core.scanner import Scanner
 from dr_source.core.db import ScanDatabase
@@ -45,6 +48,12 @@ except ImportError:
 @click.option(
     "--version", "show_version", is_flag=True, help="Show DRSource version and exit."
 )
+@click.option(
+    "--list-scans",
+    "list_scans_flag",
+    is_flag=True,
+    help="List all scanned projects and their summary.",
+)
 def main(
     target_path,
     init_db,
@@ -57,6 +66,7 @@ def main(
     debug,
     show_trace,
     show_version,
+    list_scans_flag,
 ):
     """
     DRSource - A multi-language static analysis tool.
@@ -72,6 +82,35 @@ def main(
 
     setup_logging(debug=debug)
 
+    if list_scans_flag:
+        # We need a ScanDatabase instance to get the db_directory,
+        # but we pass a dummy name since we are listing all.
+        try:
+            temp_db_instance = ScanDatabase(project_name=".")
+            scan_data = temp_db_instance.list_all_project_scans()
+        except FileNotFoundError:
+            click.echo("No scan data directory found. Run your first scan!")
+            return
+
+        if not scan_data:
+            click.echo("No projects scanned yet.")
+            return
+
+        headers = ["PROJECT NAME", "TOTAL SCANS", "LAST SCANNED", "LAST VULN COUNT"]
+        rows = [
+            [
+                s["project_name"],
+                s["total_scans"],
+                s["last_scanned_at"],
+                s["last_vuln_count"],
+            ]
+            for s in scan_data
+        ]
+
+        click.echo("\n--- DRSource Project History ---")
+        # Use tabulate for a professional look
+        click.echo(tabulate(rows, headers=headers, tablefmt="fancy_grid"))
+        return
     if where_used:
         if not target_path:
             ctx = click.get_current_context()
@@ -86,8 +125,6 @@ def main(
             headers = ["Class", "File"]
             rows = [[res["class"], res["file"]] for res in usage_results]
             try:
-                from tabulate import tabulate
-
                 click.echo(tabulate(rows, headers=headers, tablefmt="grid"))
             except ImportError:
                 click.echo(headers)

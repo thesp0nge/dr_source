@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.99.0] - 2025-11-19
+
+### Added
+
+Project History Command: Implemented the new --list-scans command. This feature
+scans the dr_source database directory, lists all projects that have been
+scanned, and displays a summary of the total scan count, last scan date, and the
+final vulnerability count for each project. Dependency: Added tabulate
+dependency for cleanly formatted ASCII table output in the console.
+
+### Modified
+
+Database: Added ScanDatabase.list_all_project_scans() method to aggregate data
+across multiple project databases. CLI: Refactored argument parsing and
+reporting to handle the new command.
+
 ## [0.98.0] - 2025-11-19
 
 ### Added
