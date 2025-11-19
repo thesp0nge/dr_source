@@ -3,10 +3,9 @@ import logging
 import time
 import importlib.metadata
 from typing import List, Dict, Callable
+from tqdm import tqdm
 
 from dr_source.api import AnalyzerPlugin, Vulnerability
-
-# Import your actual database class
 from dr_source.core.db import ScanDatabase
 
 logger = logging.getLogger(__name__)
@@ -69,41 +68,52 @@ class Scanner:
         """
         logger.info(f"Starting scan on: {self.target_path}")
 
-        # 1. Start the scan and get the scan_id
-        scan_id = self.db.start_scan()
+        self.scan_id = self.db.start_scan()
         start_time = time.time()
 
         all_findings_dataclass: List[Vulnerability] = []
-        num_files_scanned = 0
 
+        # 1. Collection Phase: Find all files that have at least one plugin
+        logger.info("Collecting files to scan...")
+        files_to_scan = []
         for root, _, files in os.walk(self.target_path):
             for file in files:
-                file_path = os.path.join(root, file)
                 _, ext = os.path.splitext(file)
 
-                plugins_to_run = self.extension_map.get(ext, [])
-                plugins_to_run.extend(self.extension_map.get(".*", []))
+                # Check if we have specific plugins OR a catch-all plugin (like regex)
+                # This filtering ensures the progress bar count is accurate
+                plugins = self.extension_map.get(ext, []) + self.extension_map.get(
+                    ".*", []
+                )
 
-                if not plugins_to_run:
-                    continue
+                if plugins:
+                    files_to_scan.append(os.path.join(root, file))
 
-                num_files_scanned += 1
-                for plugin in plugins_to_run:
-                    try:
-                        # 2. Collect findings as dataclasses
-                        findings = plugin.analyze(file_path)
-                        all_findings_dataclass.extend(findings)
-                    except Exception as e:
-                        logger.error(f"Plugin {plugin.name} failed on {file_path}: {e}")
+        # 2. Analysis Phase: Iterate with Progress Bar
+        #    tqdm wraps the list and handles the UI automatically
+        for file_path in tqdm(files_to_scan, desc="Analyzing files", unit="file"):
+            _, ext = os.path.splitext(file_path)
 
-        # 3. Convert dataclasses to dictionaries for the database
+            # Re-fetch plugins (fast)
+            plugins_to_run = self.extension_map.get(ext, [])
+            plugins_to_run.extend(self.extension_map.get(".*", []))
+
+            for plugin in plugins_to_run:
+                try:
+                    findings = plugin.analyze(file_path)
+                    all_findings_dataclass.extend(findings)
+                except Exception as e:
+                    # Log to file/stderr so it doesn't break the progress bar
+                    logger.error(f"Plugin {plugin.name} failed on {file_path}: {e}")
+
+        # 3. Save Results
         all_findings_dict = []
         for vuln in all_findings_dataclass:
             all_findings_dict.append(
                 {
                     "file": vuln.file_path,
                     "vuln_type": vuln.vulnerability_type,
-                    "match": vuln.message,  # DB 'details' col maps to 'match' key
+                    "match": vuln.message,
                     "line": vuln.line_number,
                     "severity": vuln.severity,
                     "plugin_name": vuln.plugin_name,
@@ -111,24 +121,21 @@ class Scanner:
                 }
             )
 
-        # 4. Store all findings in one transaction
         if all_findings_dict:
             try:
-                self.db.store_vulnerabilities(scan_id, all_findings_dict)
+                self.db.store_vulnerabilities(self.scan_id, all_findings_dict)
             except Exception as e:
                 logger.error(f"Failed to store vulnerabilities in database: {e}")
 
-        # 5. Update the scan summary
         scan_duration = time.time() - start_time
-        self.num_files_analyzed = num_files_scanned
+
+        self.num_files_analyzed = len(files_to_scan)
         self.scan_duration = scan_duration
         self.all_findings = all_findings_dataclass
 
         self.db.update_scan_summary(
-            scan_id,
+            self.scan_id,
             num_vulnerabilities=len(all_findings_dict),
             num_files_analyzed=self.num_files_analyzed,
-            scan_duration=scan_duration,
+            scan_duration=self.scan_duration,
         )
-
-        # logger.info(f"Scan complete. Found {len(all_findings_dict)} vulnerabilities.")
