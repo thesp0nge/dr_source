@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.100.0] - 2025-11-20
+
+### Added
+
+New JavaScript AST Analyzer Plugin: Added a new plugin dedicated to deep
+analysis of JavaScript and TypeScript code (Node.js/Browser).
+
+JavaScript Taint Analysis: Implements flow tracking from request sources
+(req.query, req.body, document.location) to dangerous sinks (eval, innerHTML,
+child_process.exec).
+
+Robust JS Parsing: Uses the tree-sitter-javascript grammar for reliable parsing
+of modern JavaScript syntax (ES2023+).
+
+Expanded Knowledge Base: Updated the knowledge_base.yaml file with new
+JavaScript AST sources and sinks for XSS and Command Injection.
+
+### Changed
+
+Dependencies: Added tree-sitter-javascript to the dependencies.
+
 ## [0.99.0] - 2025-11-19
 
 ### Added

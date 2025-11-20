@@ -139,6 +139,17 @@ COMMAND_INJECTION:
         - "subprocess.Popen" # (Analyzer logic should check for shell=True)
         - "eval"
         - "exec"
+    javascript:
+      ast_sources:
+        - "req.query"
+        - "req.body"
+        - "req.params"
+        - "document.location"
+      ast_sinks:
+        - "eval"
+        - "child_process.exec"
+        - "fs.writeFileSync"
+        - "fs.writeFile"
 
     php:
       regex_patterns:
@@ -199,6 +210,18 @@ XSS:
       ast_sinks:
         - "Markup" # e.g., in Flask
         - "| safe" # e.g., in Jinja2/Django
+  javascript:
+    ast_sources:
+      - "req.query"
+      - "req.body"
+      - "req.params"
+      - "document.location" # Client-side source
+    ast_sinks:
+      - "innerHTML"
+      - "outerHTML"
+      - "document.write"
+      - "document.writeln"
+      - "element.setAttribute" # When used for href/src
 
 # A05:2021 - Security Misconfiguration
 HARDCODED_PASSWORD:
@@ -467,6 +490,16 @@ SSRF:
         - "requests.get"
         - "requests.post"
         - "urllib.request.urlopen"
+  javascript:
+    ast_sources:
+      - "req.query"
+      - "req.body"
+    ast_sinks:
+      - "axios.get"
+      - "axios.post"
+      - "fetch"
+      - "http.request"
+      - "https.request"
 
 SESSION_FIXATION:
   description:
