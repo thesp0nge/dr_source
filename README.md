@@ -12,6 +12,13 @@ languages in a single, unified scan.
 
 ## Features
 
+- Multi-Layer Knowledge Base (v0.101.0 - NEW) Rules are loaded from multiple
+  locations and deeply merged, allowing you to add, override, or disable
+  built-in rules without modifying the source code.
+
+  - Configuration Overlays: Rules are prioritized from the highest layer down
+    (Local Project rules overwrite Default rules).
+
 - Extensible Plugin Architecture The scanner automatically discovers and runs
   all available analyzer plugins. This allows new languages (e.g., Python, Go)
   and new analysis techniques (e.g., control-flow analysis) to be added without
@@ -43,6 +50,17 @@ languages in a single, unified scan.
   - Database initialization (--init-db).
   - Exporting results in multiple formats (--export [sarif|json|ascii]).
   - Taint-flow visualization (--show-trace).
+
+## Configuration Overlays (introduced in v0.101.0)
+
+| Priority | Location                                               | Purpose                                                    |
+| -------- | ------------------------------------------------------ | ---------------------------------------------------------- |
+| Highest  | CLI Override (--config /path/to/file.yaml)             | Explicitly overwrite all other settings.                   |
+| High     | Project Local (./.dr_source_rules.yaml)                | Rules specific to the codebase you are currently scanning. |
+| Medium   | User Home (~/.config/dr_source/knowledge_base.yaml)    | Global rules applied by the current user. !                |
+| Lowest   | Factory Default (dr_source/config/knowledge_base.yaml) | The built-in rule set.                                     |
+
+To disable a rule, set its query to an empty string in a higher-priority file.
 
 ## Installation
 

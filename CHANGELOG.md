@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.101.0] - 2025-11-20
+
+### Added
+
+Multi-Layer Knowledge Base (Configuration Overlays): The Knowledge Base
+(knowledge_base.yaml) now automatically merges rules from multiple locations,
+allowing for user overrides.
+
+Search Priority: Rules are loaded in ascending priority (low to high): Factory
+Default -> User Home (~/.config/dr_source/) -> Local Project
+(.dr_source_rules.yaml) -> Explicit CLI Path.
+
+deep_merge Utility: Added the core recursive utility to handle merging complex
+dictionaries and extending lists (like rule patterns and ast_sources) without
+losing data.
+
+### Changed
+
+KnowledgeBaseLoader Refactor: The loader now uses a multi-path search sequence
+and applies deep merging on every file, ensuring the highest priority rule wins
+any conflict.
+
 ## [0.100.0] - 2025-11-20
 
 ### Added
