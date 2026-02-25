@@ -1,154 +1,191 @@
 import logging
-from typing import List, Dict, Any, Set
+import os
+from typing import List, Dict, Any, Set, Optional
 from tree_sitter import Node
 
 logger = logging.getLogger(__name__)
 
-
 class JavaScriptTaintVisitor:
-    """
-    Performs taint analysis on the JavaScript Tree-sitter AST.
-    """
-
-    def __init__(self, sources: Set[str], sinks: Set[str], source_code: bytes):
-        self.sources = sources
-        self.sinks = sinks
-        self.code = source_code
-        self.tainted_vars: Dict[str, List[str]] = {}  # {var_name: [trace]}
+    def __init__(self, sources: Set[str], sinks: List[Any], sanitizers: Set[str], source_code: bytes, project_index: Optional[Any] = None, depth: int = 0, initial_scope: Optional[Dict[str, Any]] = None):
+        # Initialize scopes with initial_scope if provided, else an empty scope
+        self.scopes: List[Dict[str, Dict[str, Any]]] = [initial_scope if initial_scope else {}]
         self.vulnerabilities: List[Dict[str, Any]] = []
+        self.functions: Dict[str, Node] = {} 
+        self.project_index = project_index
+        self.depth = depth
+        self.max_depth = 3
+        self.is_simulation = initial_scope is not None
+        # If we are starting a simulation on a block node, we want to use the initial_scope
+        # for that block instead of pushing a new empty one.
+        self.skip_first_scope = self.is_simulation
+        
+        self.sinks = {}
+        for s in sinks:
+            if isinstance(s, dict) and "name" in s:
+                self.sinks[s["name"]] = s.get("args")
+            elif isinstance(s, str):
+                self.sinks[s] = None
+                
+        self.sources = sources
+        self.sanitizers = sanitizers
+        self.code = source_code
 
-    def get_text(self, node: Node) -> str:
-        """Helper to get the source text for a node."""
-        if not node:
-            return ""
-        return self.code[node.start_byte : node.end_byte].decode("utf-8")
+    def get_text(self, node: Node, alt_code: Optional[bytes] = None) -> str:
+        if not node: return ""
+        c = alt_code if alt_code is not None else self.code
+        return c[node.start_byte : node.end_byte].decode("utf-8", errors="ignore")
+
+    def is_tainted(self, var_name: str) -> Optional[Dict[str, Any]]:
+        for scope in reversed(self.scopes):
+            if var_name in scope: return scope[var_name]
+        return None
+
+    def set_tainted(self, var_name: str, data: Dict[str, Any]):
+        self.scopes[-1][var_name] = data
+
+    def clear_taint(self, var_name: str):
+        if var_name in self.scopes[-1]: del self.scopes[-1][var_name]
 
     def get_full_member_name(self, node: Node) -> str:
-        """Reconstructs full names like 'req.query.command' or 'child_process.exec'"""
         if node.type == "member_expression":
             obj = self.get_full_member_name(node.child_by_field_name("object"))
             prop = self.get_text(node.child_by_field_name("property"))
-            if obj and prop:
-                return f"{obj}.{prop}"
-
-        if node.type == "identifier":
-            return self.get_text(node)
-
+            return f"{obj}.{prop}" if obj and prop else ""
+        if node.type == "identifier": return self.get_text(node)
         return ""
 
-    def collect_identifiers(self, node: Node) -> Set[str]:
-        """Recursively finds all identifier names (variables) in an expression."""
+    def collect_identifiers(self, node: Node, alt_code: Optional[bytes] = None) -> Set[str]:
         ids = set()
-        if not node:
-            return ids
-
-        for child in node.children:
-            ids.update(self.collect_identifiers(child))
-
-        if node.type == "identifier":
-            ids.add(self.get_text(node))
-
+        if node.type == "identifier": ids.add(self.get_text(node, alt_code))
+        for child in node.children: ids.update(self.collect_identifiers(child, alt_code))
         return ids
 
-    def check_for_source(self, node: Node) -> tuple[bool, str]:
-        """Checks if a node is a known source method invocation OR member access."""
-
-        # Case A: Simple Call Expression (e.g., req.param('...'))
+    def check_source_or_sanitizer(self, node: Node) -> tuple[Optional[str], Optional[str]]:
+        name = ""
         if node.type == "call_expression":
             func_node = node.child_by_field_name("function")
-            if func_node:
-                func_name = self.get_full_member_name(func_node)
-                if func_name in self.sources:
-                    return True, func_name
-            return False, ""
-
-        # Case B: Member Access (e.g., req.query.command)
-        elif node.type == "member_expression":
-            full_name = self.get_full_member_name(node)
-
-            # Check if the access chain starts with a known source object
-            # e.g., if 'req.query' is a source, then 'req.query.command' is tainted.
-            for source_obj in self.sources:
-                if full_name.startswith(source_obj):
-                    return True, source_obj
-            return False, ""
-
-        return False, ""
+            if func_node: name = self.get_full_member_name(func_node)
+        elif node.type == "member_expression": name = self.get_full_member_name(node)
+        if not name: return None, None
+        base = name.split(".")[-1]
+        if name in self.sanitizers or base in self.sanitizers: return "sanitizer", name
+        if name in self.sources or any(name.startswith(s) for s in self.sources): return "source", name
+        return None, None
 
     def visit(self, node: Node):
-        """Recursive tree walker."""
+        if node is None: return
 
-        # 1. Assignment or Variable Declaration (Taint Source/Propagation)
-        if node.type in [
-            "variable_declarator",
-            "assignment_expression",
-            "lexical_declaration",
-        ]:
-            # Find the variable being assigned to
-            target_node = node.child_by_field_name("name") or node.child_by_field_name(
-                "left"
-            )
-            value_node = node.child_by_field_name("value") or node.child_by_field_name(
-                "right"
-            )
+        if node.type == "function_declaration":
+            name_node = node.child_by_field_name("name")
+            if name_node: self.functions[self.get_text(name_node)] = node
 
-            if target_node and value_node and target_node.type == "identifier":
-                target_var = self.get_text(target_node)
+        # SCOPE MANAGEMENT
+        is_scope_node = node.type in ["function_declaration", "arrow_function", "method_definition", "statement_block"]
+        
+        should_push = False
+        if is_scope_node:
+            if self.skip_first_scope:
+                self.skip_first_scope = False # Only skip the very first one
+            else:
+                should_push = True
 
-                is_source, source_name = self.check_for_source(value_node)
+        if should_push: self.scopes.append({})
 
-                # Check for Taint Source
-                if is_source:
-                    self.tainted_vars[target_var] = [
-                        f"Tainted by source {source_name} at line {node.start_point[0] + 1}"
-                    ]
+        if node.type in ["variable_declarator", "assignment_expression"]:
+            target = node.child_by_field_name("name") or node.child_by_field_name("left")
+            value = node.child_by_field_name("value") or node.child_by_field_name("right")
+            if target and value and target.type == "identifier":
+                self._handle_assignment(self.get_text(target), value, node.start_point[0] + 1)
 
-                # Check for Taint Propagation (e.g., cmd_str = "echo " + cmd)
-                else:
-                    ids = self.collect_identifiers(value_node)
-                    for identifier in ids:
-                        if identifier in self.tainted_vars:
-                            # Propagate the trace
-                            new_trace = self.tainted_vars[identifier] + [
-                                f"Propagated to '{target_var}' at line {node.start_point[0] + 1}"
-                            ]
-                            self.tainted_vars[target_var] = new_trace
-                            break
-
-        # 2. Sink Check (Call Expression)
         elif node.type == "call_expression":
             func_node = node.child_by_field_name("function")
             if func_node:
-                sink_name = self.get_full_member_name(func_node)
+                name = self.get_full_member_name(func_node)
+                base = name.split(".")[-1]
+                
+                # SINK RESOLUTION WITH SUFFIX SUPPORT
+                match_name = None
+                if name in self.sinks: match_name = name
+                elif base in self.sinks: match_name = base
+                else:
+                    for s_name in self.sinks:
+                        if s_name.endswith("." + base):
+                            match_name = s_name; break
+                
+                if match_name:
+                    self._check_sink_violation(node, match_name)
+                else:
+                    func_def = self.functions.get(name)
+                    target_file, target_code = None, None
+                    if not func_def and self.project_index and self.depth < self.max_depth:
+                        global_def = self.project_index.find_function(name)
+                        if global_def and global_def.language == "javascript":
+                            func_def = global_def.node["node"]
+                            target_code = global_def.node["code"]
+                            target_file = global_def.file_path
+                    if func_def: self._simulate_call(node, func_def, name, target_file, target_code)
 
-                # Check if the function name is a known sink (either full name or simple name)
-                is_sink = (
-                    sink_name in self.sinks or sink_name.split(".")[-1] in self.sinks
-                )
+        for child in node.children: self.visit(child)
+        if should_push: self.scopes.pop()
 
-                if is_sink:
-                    args_node = node.child_by_field_name("arguments")
-                    if args_node:
-                        # Check all arguments for tainted variables
-                        for arg in args_node.children:
-                            ids = self.collect_identifiers(arg)
-                            for var_name in ids:
-                                if var_name in self.tainted_vars:
-                                    # Vulnerability found!
-                                    self.vulnerabilities.append(
-                                        {
-                                            "vuln_type": "COMMAND_INJECTION",
-                                            "sink": sink_name,
-                                            "variable": var_name,
-                                            "line": node.start_point[0] + 1,
-                                            "trace": self.tainted_vars[var_name],
-                                        }
-                                    )
-                                    break  # Stop checking args for this sink
+    def _handle_assignment(self, var_name: str, value_node: Node, line: int):
+        kind, name = self.check_source_or_sanitizer(value_node)
+        if kind == "sanitizer": self.clear_taint(var_name); return
+        if kind == "source":
+            self.set_tainted(var_name, {"source": name, "trace": [f"Tainted by source {name} at line {line}"]})
+            return
+        for identifier in self.collect_identifiers(value_node):
+            taint = self.is_tainted(identifier)
+            if taint:
+                self.set_tainted(var_name, {"source": taint["source"], "trace": taint["trace"] + [f"Propagated to {var_name} at line {line}"]})
+                return
+        self.clear_taint(var_name)
 
-        # 3. Recurse (Manual recursion for Tree-sitter)
-        for child in node.children:
-            self.visit(child)
+    def _check_sink_violation(self, node: Node, sink_name: str):
+        args_node = node.child_by_field_name("arguments")
+        if not args_node: return
+        vuln_args = self.sinks.get(sink_name)
+        actual_args = [child for child in args_node.children if child.is_named]
+        for idx, arg in enumerate(actual_args):
+            if vuln_args is not None and idx not in vuln_args: continue
+            for var_name in self.collect_identifiers(arg):
+                taint = self.is_tainted(var_name)
+                if taint:
+                    self.vulnerabilities.append({
+                        "sink": sink_name,
+                        "variable": var_name,
+                        "line": node.start_point[0] + 1,
+                        "trace": taint["trace"]
+                    })
+                    break
+
+    def _simulate_call(self, call_node: Node, func_node: Node, func_name: str, target_file: Optional[str], target_code: Optional[bytes]):
+        args_node = call_node.child_by_field_name("arguments")
+        params_node = func_node.child_by_field_name("parameters")
+        if not args_node or not params_node: return
+        actual_args = [child for child in args_node.children if child.is_named]
+        # Parameters are children of the 'formal_parameters' node
+        actual_params = [child for child in params_node.children if child.type in ["identifier", "formal_parameter"]]
+        
+        t_code = target_code if target_code is not None else self.code
+        tainted_params = {}
+        for idx, arg in enumerate(actual_args):
+            if idx < len(actual_params):
+                param_node = actual_params[idx]
+                param_name = self.get_text(param_node, t_code)
+                for var_name in self.collect_identifiers(arg):
+                    taint = self.is_tainted(var_name)
+                    if taint:
+                        loc = f"in {os.path.basename(target_file)}" if target_file else "locally"
+                        tainted_params[param_name] = {"source": taint["source"], "trace": taint["trace"] + [f"Passed to {func_name}() {loc} at line {call_node.start_point[0] + 1}"]}
+                        break
+        if tainted_params:
+            body_node = func_node.child_by_field_name("body")
+            if body_node:
+                sinks_list = [{"name": n, "args": a} for n, a in self.sinks.items()]
+                visitor = JavaScriptTaintVisitor(self.sources, sinks_list, self.sanitizers, t_code, self.project_index, self.depth + 1, initial_scope=tainted_params)
+                visitor.visit(body_node)
+                self.vulnerabilities.extend(visitor.vulnerabilities)
 
     def get_vulnerabilities(self) -> List[Dict[str, Any]]:
         return self.vulnerabilities

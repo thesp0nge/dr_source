@@ -1,35 +1,27 @@
 import logging
-from typing import List
+from typing import List, Any
 from types import SimpleNamespace
-
 from tree_sitter import Parser, Language
-
-# Ensure this is installed via pip install tree-sitter-javascript
 import tree_sitter_javascript
 
 from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
-from .taint_visitor import JavaScriptTaintVisitor  # <-- The visitor we just defined
+from .taint_visitor import JavaScriptTaintVisitor
 
 logger = logging.getLogger(__name__)
 
-# Load the language object once at module startup
 try:
-    # Use the correct loading pattern: get the C capsule, wrap it in Language()
     JS_LANGUAGE = Language(tree_sitter_javascript.language())
-except ImportError:
+except Exception as e:
     JS_LANGUAGE = None
-    logger.error("JavaScript Tree-sitter package not found. JS analysis disabled.")
+    logger.error(f"JavaScript Tree-sitter failed to load: {e}")
 
 
 class JavaScriptAstAnalyzer(AnalyzerPlugin):
-    """
-    AST Analyzer for JavaScript/TypeScript using Tree-sitter.
-    """
-
     def __init__(self):
         self.kb = KnowledgeBaseLoader()
         self.parser = Parser()
+        self.project_index = None
         if JS_LANGUAGE:
             self.parser.language = JS_LANGUAGE
         else:
@@ -42,51 +34,78 @@ class JavaScriptAstAnalyzer(AnalyzerPlugin):
     def get_supported_extensions(self) -> List[str]:
         return [".js", ".jsx", ".ts", ".tsx"]
 
+    def index(self, file_path: str, project_index: Any):
+        """Indexes function declarations in JS/TS files."""
+        if not self.parser: return
+        try:
+            with open(file_path, "rb") as f:
+                code_bytes = f.read()
+            tree = self.parser.parse(code_bytes)
+            
+            def find_functions(node):
+                if node.type == "function_declaration":
+                    name_node = node.child_by_field_name("name")
+                    if name_node:
+                        func_name = code_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
+                        project_index.register_function(
+                            func_name, 
+                            file_path, 
+                            {"node": node, "code": code_bytes}, 
+                            "javascript"
+                        )
+                for child in node.children:
+                    find_functions(child)
+            
+            find_functions(tree.root_node)
+        except Exception as e:
+            logger.error(f"Error indexing JS file {file_path}: {e}")
+
     def analyze(self, file_path: str) -> List[Vulnerability]:
         findings = []
         if not self.parser:
             return []
 
         try:
-            with open(file_path, "rb") as f:  # Tree-sitter needs bytes
+            with open(file_path, "rb") as f:
                 code_bytes = f.read()
 
             tree = self.parser.parse(code_bytes)
-
-            # 1. Prepare data for visitor
             all_vuln_types = self.kb.rules.keys()
-            sources = set()
-            sinks = set()
+
             for vuln_type in all_vuln_types:
-                sources.update(self.kb.get_lang_ast_sources(vuln_type, "javascript"))
-                sinks.update(self.kb.get_lang_ast_sinks(vuln_type, "javascript"))
+                sources = self.kb.get_lang_ast_sources(vuln_type, "javascript")
+                sinks = self.kb.get_lang_ast_sinks(vuln_type, "javascript")
+                sanitizers = self.kb.get_lang_ast_sanitizers(vuln_type, "javascript")
 
-            # 2. Instantiate and Run Visitor
-            visitor = JavaScriptTaintVisitor(sources, sinks, code_bytes)
-            visitor.visit(tree.root_node)
+                if not sources or not sinks:
+                    continue
 
-            # 3. Collect findings and format
-            for issue in visitor.vulnerabilities:
-                rules = self.kb.get_detector_rules(issue["vuln_type"])
-                severity = rules.get(
-                    "severity", "CRITICAL"
-                ).upper()  # Use CRITICAL as a safer default
+                rules = self.kb.get_detector_rules(vuln_type)
+                severity = rules.get("severity", "MEDIUM").upper()
 
-                findings.append(
-                    Vulnerability(
-                        vulnerability_type=f"{issue['vuln_type']} (AST Taint)",
-                        message=f"Sink method '{issue['sink']}' called with tainted var '{issue['variable']}'",
-                        severity=severity,
-                        file_path=file_path,
-                        line_number=issue["line"],
-                        plugin_name=self.name,
-                        trace=issue.get("trace", []),
-                    )
+                visitor = JavaScriptTaintVisitor(
+                    sources=set(sources), 
+                    sinks=sinks, 
+                    sanitizers=set(sanitizers),
+                    source_code=code_bytes,
+                    project_index=self.project_index
                 )
+                visitor.visit(tree.root_node)
+
+                for issue in visitor.vulnerabilities:
+                    findings.append(
+                        Vulnerability(
+                            vulnerability_type=f"{vuln_type} (AST Taint)",
+                            message=f"Sink method '{issue['sink']}' called with tainted var '{issue['variable']}'",
+                            severity=severity,
+                            file_path=file_path,
+                            line_number=issue["line"],
+                            plugin_name=self.name,
+                            trace=issue.get("trace", []),
+                        )
+                    )
 
         except Exception as e:
-            logger.error(
-                f"Error analyzing {file_path} with {self.name}: {e}", exc_info=True
-            )
+            logger.error(f"Error analyzing {file_path} with {self.name}: {e}")
 
         return findings

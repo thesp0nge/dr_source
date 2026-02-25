@@ -82,6 +82,8 @@ def main(
 
     setup_logging(debug=debug)
 
+
+
     if list_scans_flag:
         # We need a ScanDatabase instance to get the db_directory,
         # but we pass a dummy name since we are listing all.

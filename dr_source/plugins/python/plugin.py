@@ -16,6 +16,7 @@ class PythonAstAnalyzer(AnalyzerPlugin):
 
     def __init__(self):
         self.kb = KnowledgeBaseLoader()
+        self.project_index = None
 
     @property
     def name(self) -> str:
@@ -23,6 +24,19 @@ class PythonAstAnalyzer(AnalyzerPlugin):
 
     def get_supported_extensions(self) -> List[str]:
         return [".py"]
+
+    def index(self, file_path: str, project_index: Any):
+        """Populates the global project index with Python function definitions."""
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                code = f.read()
+            tree = ast.parse(code, filename=file_path)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    # We store the node and the file path
+                    project_index.register_function(node.name, file_path, node, "python")
+        except Exception as e:
+            logger.error(f"Error indexing {file_path}: {e}")
 
     def analyze(self, file_path: str) -> List[Vulnerability]:
         findings = []
@@ -37,6 +51,7 @@ class PythonAstAnalyzer(AnalyzerPlugin):
             for vuln_type in all_vuln_types:
                 sources = self.kb.get_lang_ast_sources(vuln_type, "python")
                 sinks = self.kb.get_lang_ast_sinks(vuln_type, "python")
+                sanitizers = self.kb.get_lang_ast_sanitizers(vuln_type, "python")
 
                 if not sources or not sinks:
                     continue  # This rule doesn't apply to Python AST
@@ -45,7 +60,12 @@ class PythonAstAnalyzer(AnalyzerPlugin):
                 severity = rules.get("severity", "MEDIUM").upper()
 
                 # Create and run the visitor for each vuln type
-                visitor = PythonTaintVisitor(source_list=sources, sink_list=sinks)
+                visitor = PythonTaintVisitor(
+                    source_list=sources, 
+                    sink_list=sinks, 
+                    sanitizer_list=sanitizers,
+                    project_index=self.project_index
+                )
                 visitor.visit(tree)
 
                 raw_issues = visitor.vulnerabilities

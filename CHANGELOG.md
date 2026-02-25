@@ -6,6 +6,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.102.0] - 2026-02-25
+
+### Added
+
+- **Full Inter-File Analysis:**
+  - **Global Project Indexing:** The scanner now performs a pre-scan phase to
+    index all functions and methods across the entire codebase.
+  - **Cross-File Taint Tracking:** Taint analysis can now follow data flows
+    across file boundaries. When a function from another file is called with
+    tainted data, the engine "jumps" into that file's AST to continue the
+    analysis.
+  - **Cross-Language Support:** Inter-file analysis is fully implemented for
+    Java (Tree-sitter), Python (Native AST), and JavaScript/Node.js
+    (Tree-sitter).
+- **Professional Taint Analysis Engine:**
+  - **Scope Management:** Implemented a scope stack (stack of dictionaries) in
+    all AST visitors. This ensures variable name collisions between different
+    functions or blocks do not cause cross-contamination of taint.
+  - **AST Sanitizers Support:** The engine now recognizes "Sanitizer" methods
+    (e.g., `int()`, `escape()`, `prepareStatement`). If tainted data passes
+    through a sanitizer, the taint is removed.
+  - **Sink Argument Tracking:** Knowledge base rules can now specify which
+    arguments are vulnerable (e.g., `args: [0]`). Findings are only reported if
+    tainted data reaches a vulnerable argument.
+  - **Suffix-Based Sink Matching:** Support for matching sinks by suffix (e.g.,
+    matching `cp.exec` against a rule for `child_process.exec`).
+- **Enhanced Knowledge Base:**
+
+  - Massively expanded rules for Java, Python, and JavaScript/Node.js.
+  - Added high-entropy regex patterns for modern secrets (AWS, GitHub, Stripe,
+    etc.).
+  - Comprehensive support for Node.js ecosystems (Express, Sequelize, Prisma,
+    Axios).
+
+- **New Pattern Matching Engine:** Introduced a new `PatternAnalyzer` plugin for
+  Python, enabling Semgrep-like pattern matching for more expressive and
+  powerful security rules.
+- **Metavariable Support:** The pattern matching engine now supports
+  metavariables (e.g., `$VAR`) to match any single expression or statement.
+- **Ellipsis Support:** The pattern matching engine now supports ellipsis
+  (`...`) to match any sequence of arguments or statements.
+- **New Rules:** Added new rules `INSECURE_EVAL` and `INSECURE_PRINT` to the
+  `knowledge_base.yaml` to demonstrate the new pattern matching capabilities.
+
+### Changed
+
+- **Scanner Workflow:** Added an "Indexing Phase" before the "Analysis Phase" to
+  build the global symbol table.
+- **Reporting:** Taint traces now include cross-file hops (e.g.,
+  `Passed to helper() in Utils.java at line 45`).
+- **Plugin API:** Added an optional `index()` method to the `AnalyzerPlugin`
+  interface.
+- **Scanner File Collection:** The scanner can now correctly handle both single
+  file paths and directory paths as input targets.
+
+### Fixed
+
+- **File Scanning Logic:** Fixed a bug where the scanner would not analyze any
+  files when a single file path was provided as a target.
+- **Logging Configuration:** Resolved several issues with the logging
+  configuration to ensure debug messages are correctly displayed when the
+  `--debug` flag is used.
+
 ## [0.101.0] - 2025-11-20
 
 ### Added

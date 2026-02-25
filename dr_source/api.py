@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Literal
+from typing import List, Literal, Any
 
 # Define standard severity levels
 Severity = Literal["HIGH", "MEDIUM", "LOW", "INFO"]
@@ -69,14 +69,12 @@ class AnalyzerPlugin(ABC):
     def analyze(self, file_path: str) -> List[Vulnerability]:
         """
         The main analysis engine.
+        """
+        pass
 
-        The orchestrator will call this method for every file that
-        matches the plugin's supported extensions.
-
-        Args:
-            file_path (str): The absolute path to the file to analyze.
-
-        Returns:
-            List[Vulnerability]: A list of 0 or more findings.
+    def index(self, file_path: str, project_index: Any):
+        """
+        Optional: Collects global symbols (functions, classes) from the file
+        to populate the ProjectIndex for inter-file analysis.
         """
         pass

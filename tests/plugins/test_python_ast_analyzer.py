@@ -50,8 +50,8 @@ class TestPythonAstAnalyzer(unittest.TestCase):
         self.assertEqual(len(vuln.trace), 2, "Taint trace should have 2 steps")
 
         # Check the trace steps
-        self.assertIn("Tainted by source 'request.args.get'", vuln.trace[0])
-        self.assertIn("Propagated to 'command'", vuln.trace[1])
+        self.assertIn("Tainted by request.args.get", vuln.trace[0])
+        self.assertIn("Propagated to command", vuln.trace[1])
 
     def test_finds_sqli_via_fstring(self):
         """

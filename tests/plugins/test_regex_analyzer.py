@@ -36,16 +36,16 @@ class TestRegexAnalyzer(unittest.TestCase):
 
         # Check that we found the password
         found_types = {f.vulnerability_type for f in findings}
-        self.assertIn("HARDCODED_PASSWORD", found_types)
+        self.assertIn("HARDCODED_SECRET", found_types)
 
         # Check the finding content
         pwd_finding = next(
             f
             for f in findings
-            if f.vulnerability_type == "HARDCODED_PASSWORD" and "password" in f.message
+            if f.vulnerability_type == "HARDCODED_SECRET" and "password" in f.message
         )
         self.assertEqual(pwd_finding.severity, "HIGH")
-        self.assertEqual(pwd_finding.line_number, 3)  # Line 3 in the test file
+        self.assertEqual(pwd_finding.line_number, 2)  # Line 2 in the test file
 
     def test_finds_java_regex_vulnerability(self):
         """

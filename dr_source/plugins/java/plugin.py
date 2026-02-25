@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from types import SimpleNamespace
 
 # Tree-sitter imports
@@ -22,7 +22,8 @@ class JavaAstAnalyzer(AnalyzerPlugin):
     def __init__(self):
         self.kb = KnowledgeBaseLoader()
         self.detector = TaintDetector()
-
+        self.project_index = None
+        
         # Initialize Tree-sitter Java parser
         try:
             # Correct way to load from the pip package
@@ -40,6 +41,35 @@ class JavaAstAnalyzer(AnalyzerPlugin):
     def get_supported_extensions(self) -> List[str]:
         return [".java"]
 
+    def index(self, file_path: str, project_index: Any):
+        """Indexes public-ish methods in Java files."""
+        if not self.parser: return
+        try:
+            with open(file_path, "rb") as f:
+                code_bytes = f.read()
+            tree = self.parser.parse(code_bytes)
+            
+            # Use a simple query or walk to find method declarations
+            def find_methods(node):
+                if node.type == "method_declaration":
+                    name_node = node.child_by_field_name("name")
+                    if name_node:
+                        method_name = code_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
+                        # For Java, we store the node AND the source code because 
+                        # Tree-sitter nodes need the original bytes to extract text
+                        project_index.register_function(
+                            method_name, 
+                            file_path, 
+                            {"node": node, "code": code_bytes}, 
+                            "java"
+                        )
+                for child in node.children:
+                    find_methods(child)
+            
+            find_methods(tree.root_node)
+        except Exception as e:
+            logger.error(f"Error indexing Java file {file_path}: {e}")
+
     def analyze(self, file_path: str) -> List[Vulnerability]:
         findings = []
         if not self.parser:
@@ -50,14 +80,7 @@ class JavaAstAnalyzer(AnalyzerPlugin):
                 code_bytes = f.read()
 
             # 1. Parse with Tree-sitter
-            # This never throws syntax errors; it produces error nodes instead.
             tree = self.parser.parse(code_bytes)
-
-            # Optional: Log if there are syntax errors in the tree
-            if tree.root_node.has_error:
-                logger.debug(
-                    f"Tree-sitter found syntax errors in {file_path}, but analysis will proceed."
-                )
 
             file_object = SimpleNamespace(path=file_path)
             all_vuln_types = self.kb.rules.keys()
@@ -65,6 +88,7 @@ class JavaAstAnalyzer(AnalyzerPlugin):
             for vuln_type in all_vuln_types:
                 sources = self.kb.get_lang_ast_sources(vuln_type, "java")
                 sinks = self.kb.get_lang_ast_sinks(vuln_type, "java")
+                sanitizers = self.kb.get_lang_ast_sanitizers(vuln_type, "java")
 
                 if not sources or not sinks:
                     continue
@@ -72,14 +96,16 @@ class JavaAstAnalyzer(AnalyzerPlugin):
                 rules = self.kb.get_detector_rules(vuln_type)
                 severity = rules.get("severity", "MEDIUM").upper()
 
-                # 2. Run Taint Analysis (Using source code for value extraction)
+                # 2. Run Taint Analysis
                 raw_issues = self.detector.detect_ast_taint(
                     file_object=file_object,
                     ast_tree=tree,
-                    source_code=code_bytes,  # Pass raw code to extract strings
+                    source_code=code_bytes,
                     source_list=sources,
                     sink_list=sinks,
+                    sanitizer_list=sanitizers,
                     vuln_prefix=vuln_type,
+                    project_index=self.project_index
                 )
 
                 for issue in raw_issues:

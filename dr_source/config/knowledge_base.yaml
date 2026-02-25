@@ -1,654 +1,254 @@
 #
-# DRSource Multi-Language Rule Knowledge Base
+# DRSource Professional Security Knowledge Base
 #
 # Structure:
 # VULNERABILITY_ID:
-#   description: "..."
-#   cwe: "..."
-#   severity: "..."
-#
-#   # --- General rules, apply to all languages (e.g., secret scanning) ---
-#   general_regex_patterns:
-#     - id: "..."
-#       message: "..."
-#       severity: "..."
-#       pattern: |
-#         ...
+#   description: "Detailed explanation of the vulnerability"
+#   cwe: "Common Weakness Enumeration ID"
+#   severity: "HIGH | MEDIUM | LOW | INFO"
 #
 #   # --- Language-specific rules ---
 #   language_specific:
-#     java:
+#     <lang>:
 #       regex_patterns:
 #         - id: "..."
-#       ast_sources:
-#         - "..."
-#       ast_sinks:
-#         - "..."
-#     python:
-#       regex_patterns:
-#         - id: "..."
-#       ast_sources:
-#         - "..."
-#       ast_sinks:
-#         - "..."
+#           message: "..."
+#           pattern: "..."
+#       ast_sources: ["method1", "variable1"]
+#       ast_sinks: 
+#         - "method2" # All args are vulnerable
+#         - name: "method3"
+#           args: [0] # Only the first argument is vulnerable
+#       ast_sanitizers: ["cleanupMethod"]
 #
 
-# A03:2021 - Injection
+# --- INJECTION CATEGORY ---
 SQL_INJECTION:
-  description:
-    "Building SQL queries by concatenating unvalidated user input leads to SQL
-    Injection."
+  description: "Building SQL queries with unvalidated user input."
   cwe: "CWE-89"
   severity: "HIGH"
-
   language_specific:
     java:
       regex_patterns:
         - id: "JAVA-SQLI-001"
-          message:
-            "SQL query is directly concatenated with user input
-            (request.getParameter)."
-          severity: "HIGH"
-          pattern: |
-            (?i)(SELECT|INSERT|UPDATE|DELETE)\s+.*\s+FROM\s+.*\+.*request\.getParameter
+          message: "SQL query is directly concatenated with user input (request.getParameter)."
+          pattern: "(?i)(SELECT|INSERT|UPDATE|DELETE)\\s+.*\\s+FROM\\s+.*\\+.*request\\.getParameter"
         - id: "JAVA-SQLI-002"
-          message:
-            "Insecure 'Statement.execute' call with string concatenation."
-          severity: "HIGH"
-          pattern: |
-            (?i)^\s*Statement\.execute(Query|Update)?\s*\(.*?\+.*\)
+          message: "Insecure 'Statement.execute' call with string concatenation."
+          pattern: "(?i)^\\s*Statement\\.execute(Query|Update)?\\s*\\(.*\\+.*\\)"
       ast_sources:
         - "request.getParameter"
+        - "request.getHeader"
+        - "request.getCookie"
       ast_sinks:
-        - "executeQuery"
-        - "executeUpdate"
-        - "execute"
-
+        - name: "executeQuery"
+          args: [0]
+        - name: "executeUpdate"
+          args: [0]
+        - name: "execute"
+          args: [0]
+        - name: "prepareCall"
+          args: [0]
+      ast_sanitizers:
+        - "prepareStatement" # Using prepared statements is a natural sanitizer
+        - "setLong"
+        - "setInt"
+        - "setBoolean"
+        - "StringEscapeUtils.escapeSql"
     python:
-      regex_patterns:
-        - id: "PY-SQLI-001"
-          message:
-            "SQL query constructed with f-string from request data (e.g.,
-            request.args)."
-          severity: "HIGH"
-          pattern: |
-            cursor\.execute\s*\(\s*f["'].*(request\.(args|form|json))
       ast_sources:
-        # Flask, Django, etc.
         - "request.args.get"
         - "request.form"
         - "request.json"
         - "request.GET.get"
-        - "request.POST.get"
       ast_sinks:
-        - "cursor.execute" # Covers all db.cursor.execute()
-
-    php:
-      regex_patterns:
-        - id: "PHP-SQLI-001"
-          message: "SQL query concatenated with $_GET or $_POST variable."
-          severity: "HIGH"
-          pattern: |
-            (mysqli_query|mysql_query|pg_query)\s*\(.*\.\s*\$_(GET|POST)
-      ast_sources:
-        - "$_GET"
-        - "$_POST"
-        - "$_REQUEST"
-      ast_sinks:
-        - "mysqli_query"
-        - "mysql_query"
-        - "pg_query"
-
-COMMAND_INJECTION:
-  description:
-    "Building OS commands by concatenating unvalidated user input leads to
-    Remote Code Execution (RCE)."
-  cwe: "CWE-78"
-  severity: "CRITICAL" # <-- Updated
-
-  language_specific:
-    java:
-      regex_patterns:
-        - id: "JAVA-RCE-001"
-          message:
-            "OS command is built using unvalidated user input
-            (request.getParameter)."
-          severity: "CRITICAL"
-          pattern: |
-            Runtime\.getRuntime\(\)\.exec\s*\(.*\+.*request\.getParameter
-      ast_sources:
-        - "request.getParameter"
-      ast_sinks:
-        - "exec"
-        - "ProcessBuilder"
-
-    python:
-      regex_patterns:
-        - id: "PY-RCE-001"
-          message:
-            "Insecure 'os.system' or 'subprocess.Popen' call with shell=True and
-            request data."
-          severity: "CRITICAL"
-          pattern: |
-            (os\.system|subprocess\.Popen)\s*\(.*\+.*(request\.(args|form|json))
-      ast_sources:
-        - "request.args.get"
-        - "request.form"
-      ast_sinks:
-        - "os.system"
-        - "subprocess.Popen" # (Analyzer logic should check for shell=True)
-        - "eval"
-        - "exec"
+        - name: "cursor.execute"
+          args: [0]
+        - name: "session.execute"
+          args: [0]
+      ast_sanitizers:
+        - "int"
+        - "float"
+        - "bool"
     javascript:
       ast_sources:
         - "req.query"
         - "req.body"
         - "req.params"
-        - "document.location"
       ast_sinks:
-        - "eval"
-        - "child_process.exec"
-        - "fs.writeFileSync"
-        - "fs.writeFile"
+        - name: "db.query"
+          args: [0]
+        - name: "connection.execute"
+          args: [0]
+        - name: "sequelize.query"
+          args: [0]
+        - name: "prisma.$queryRaw"
+          args: [0]
+      ast_sanitizers:
+        - "escape"
+        - "validator.escape"
 
-    php:
-      regex_patterns:
-        - id: "PHP-RCE-001"
-          message:
-            "Insecure 'exec', 'system', or 'passthru' call with $_GET or $_POST
-            variable."
-          severity: "CRITICAL"
-          pattern: |
-            (exec|system|passthru|shell_exec|`)\s*\(.*\.\s*\$_(GET|POST)
-      ast_sources:
-        - "$_GET"
-        - "$_POST"
-      ast_sinks:
-        - "exec"
-        - "system"
-        - "passthru"
-        - "shell_exec"
-        - "`" # Backticks operator
-
-XSS:
-  description:
-    "Writing unvalidated user input directly to an HTML response leads to
-    Cross-Site Scripting (XSS)."
-  cwe: "CWE-79"
-  severity: "HIGH"
-
+COMMAND_INJECTION:
+  description: "OS commands built using unvalidated user input."
+  cwe: "CWE-78"
+  severity: "CRITICAL"
   language_specific:
     java:
-      regex_patterns:
-        - id: "JAVA-XSS-001"
-          message:
-            "User input is written directly to the HTTP response without
-            encoding."
-          severity: "HIGH"
-          pattern: |
-            response\.getWriter\(\)\.print(ln)?\s*\(.*request\.getParameter
-      ast_sources:
-        - "request.getParameter"
-      ast_sinks:
-        - "print"
-        - "println"
-        - "write"
-
+      ast_sources: ["request.getParameter"]
+      ast_sinks: 
+        - name: "exec"
+          args: [0]
+        - "ProcessBuilder"
     python:
-      # Note: Modern frameworks like Django/Flask auto-escape by default.
-      # These rules look for deliberate disabling of auto-escaping.
-      regex_patterns:
-        - id: "PY-XSS-001"
-          message:
-            "User input rendered with 'Markup' or 'safe' filter, disabling
-            auto-escaping."
-          severity: "HIGH"
-          pattern: |
-            (Markup|safe)\s*\(.*(request\.(args|form|json))
-      ast_sources:
-        - "request.args.get"
-      ast_sinks:
-        - "Markup" # e.g., in Flask
-        - "| safe" # e.g., in Jinja2/Django
-  javascript:
-    ast_sources:
-      - "req.query"
-      - "req.body"
-      - "req.params"
-      - "document.location" # Client-side source
-    ast_sinks:
-      - "innerHTML"
-      - "outerHTML"
-      - "document.write"
-      - "document.writeln"
-      - "element.setAttribute" # When used for href/src
+      ast_sources: ["request.args.get", "request.form"]
+      ast_sinks: 
+        - name: "os.system"
+          args: [0]
+        - name: "os.popen"
+          args: [0]
+        - name: "subprocess.run"
+          args: [0]
+        - name: "subprocess.Popen"
+          args: [0]
+        - name: "eval"
+          args: [0]
+        - name: "exec"
+          args: [0]
+    javascript:
+      ast_sources: ["req.query", "req.body"]
+      ast_sinks: 
+        - name: "child_process.exec"
+          args: [0]
+        - name: "child_process.spawn"
+          args: [0]
+        - name: "eval"
+          args: [0]
 
-# A05:2021 - Security Misconfiguration
-HARDCODED_PASSWORD:
-  description:
-    "Hardcoding passwords, API keys, or other credentials in source code is
-    highly insecure."
+# --- DATA EXPOSURE & SECRETS ---
+HARDCODED_SECRET:
+  description: "Hardcoded credentials, API keys, or tokens."
   cwe: "CWE-798"
   severity: "HIGH"
-
-  # These rules are general and apply to ALL languages
   general_regex_patterns:
-    - id: "GEN-PASS-001"
-      message: "A hardcoded password appears to be in the code."
-      severity: "HIGH"
-      pattern: |
-        (?i)(password|passwd|pwd)\s*[=:]\s*["'](.{4,})["']
-    - id: "GEN-PASS-002"
-      message: "A hardcoded API key or access token appears to be in the code."
-      severity: "HIGH"
-      pattern: |
-        (?i)(api_key|apikey|access_token|accesstoken)\s*[=:]\s*["'](.{12,})["']
+    - id: "SEC-AWS-001"
+      message: "AWS Access Key ID found."
+      pattern: "(?i)AKIA[0-9A-Z]{16}"
+    - id: "SEC-AWS-002"
+      message: "AWS Secret Access Key found."
+      pattern: "(?i)aws_secret_access_key\\s*[=:]\\s*['\"][A-Za-z0-9/+=]{40}['\"]"
+    - id: "SEC-GH-001"
+      message: "GitHub Personal Access Token found."
+      pattern: "ghp_[A-Za-z0-9]{36}"
+    - id: "SEC-STRIPE-001"
+      message: "Stripe API Key found."
+      pattern: "sk_live_[0-9a-zA-Z]{24}"
+    - id: "SEC-GENERIC-001"
+      message: "Generic high-entropy password or secret."
+      pattern: "(?i)(password|passwd|pwd|secret|auth|token|api_key|apikey)\\s*[=:]\\s*['\"](.{8,})['\"]"
 
-  language_specific:
-    python:
-      regex_patterns:
-        - id: "PY-SEC-001"
-          message: "A hardcoded Django SECRET_KEY was found."
-          severity: "HIGH"
-          pattern: |
-            (?i)^\s*SECRET_KEY\s*=\s*["'](?!YOUR_SECRET_KEY_HERE)
-
-# A08:2021 - Software and Data Integrity Failures
-INSECURE_DESERIALIZATION:
-  description:
-    "Deserializing untrusted data can lead to Remote Code Execution (RCE)."
-  cwe: "CWE-502"
-  severity: "CRITICAL" # <-- Updated
-
-  language_specific:
-    java:
-      regex_patterns:
-        - id: "JAVA-DESER-001"
-          message:
-            "Unsafe deserialization with 'ObjectInputStream.readObject()'."
-          severity: "CRITICAL"
-          pattern: |
-            ObjectInputStream\.readObject\s*\(\)
-      ast_sinks:
-        - "readObject" # (e.g. ObjectInputStream.readObject)
-
-    python:
-      regex_patterns:
-        - id: "PY-DESER-001"
-          message: "Unsafe deserialization with 'pickle.loads()'."
-          severity: "CRITICAL"
-          pattern: |
-            pickle\.loads\s*\(
-        - id: "PY-DESER-002"
-          message:
-            "Unsafe deserialization with 'yaml.unsafe_load()'. Use
-            'yaml.safe_load()' instead."
-          severity: "CRITICAL"
-          pattern: |
-            yaml\.unsafe_load\s*\(
-      ast_sinks:
-        - "pickle.loads"
-        - "yaml.unsafe_load" # <-- Updated from yaml.load
-
-OPEN_REDIRECT:
-  description:
-    "Allowing user input to control a redirect destination can enable phishing
-    attacks."
-  cwe: "CWE-601"
-  severity: "MEDIUM"
-  language_specific:
-    java:
-      ast_sources:
-        - "getParameter"
-      ast_sinks:
-        - "sendRedirect"
-    python:
-      ast_sources:
-        - "request.args.get"
-        - "request.form"
-      ast_sinks:
-        - "redirect"
-        - "HttpResponseRedirect"
-
-PATH_TRAVERSAL:
-  description:
-    "Using unvalidated user input to build a file path can allow an attacker to
-    read or write arbitrary files."
-  cwe: "CWE-22"
+# --- WEB VULNERABILITIES ---
+XSS:
+  description: "Unvalidated user input written to HTML response."
+  cwe: "CWE-79"
   severity: "HIGH"
   language_specific:
     java:
-      ast_sources:
-        - "getParameter"
-      ast_sinks:
-        - "File"
-        - "FileInputStream"
-        - "FileOutputStream"
-        - "FileReader"
-    python:
-      regex_patterns:
-        - id: "PY-PATH-001"
-          message: "File path constructed from request data."
-          severity: "HIGH"
-          pattern: |
-            (open|send_file|send_from_directory)\s*\(.*\+.*(request\.(args|form|json))
-      ast_sources:
-        - "request.args.get"
-        - "request.form"
-      ast_sinks:
-        - "open"
-        - "send_file"
-        - "send_from_directory"
-
-# A02:2021 - Cryptographic Failures
-WEAK_CRYPTO:
-  description:
-    "Using outdated or weak cryptographic algorithms (e.g., DES, MD5, SHA1) is
-    insecure."
-  cwe: "CWE-327"
-  severity: "HIGH"
-  language_specific:
-    java:
-      regex_patterns:
-        - id: "JAVA-CRYPTO-001"
-          message: "Use of insecure DES cipher. Use AES/GCM/NoPadding instead."
-          severity: "HIGH"
-          pattern: |
-            Cipher\.getInstance\s*\(\s*["']DES
-        - id: "JAVA-CRYPTO-002"
-          message:
-            "Use of insecure hashing algorithm MD5. Use SHA-256 or stronger."
-          severity: "HIGH"
-          pattern: |
-            MessageDigest\.getInstance\s*\(\s*["']MD5
-      ast_sinks:
-        - "getInstance"
-    python:
-      regex_patterns:
-        - id: "PY-CRYPTO-001"
-          message:
-            "Use of insecure hashing algorithm MD5. Use SHA-256 or stronger."
-          severity: "HIGH"
-          pattern: |
-            hashlib\.md5\s*\(`
-        - id: "PY-CRYPTO-002"
-          message:
-            "Use of weak hashing algorithm SHA1. Use SHA-256 or stronger."
-          severity: "MEDIUM"
-          pattern: |
-            hashlib\.sha1\s*\(`
-        - id: "PY-CRYPTO-003"
-          message:
-            "Use of insecure DES cipher from pycryptodome. Use AES instead."
-          severity: "HIGH"
-          pattern: |
-            from\s+Crypto\.Cipher\s+import\s+DES
-XXE:
-  description:
-    "Parsing XML from an untrusted source without disabling external entities
-    leads to XML External Entity (XXE) attacks."
-  cwe: "CWE-611"
-  severity: "HIGH"
-  language_specific:
-    java:
-      ast_sinks:
-        - "parse"
-    python:
-      regex_patterns:
-        - id: "PY-XXE-001"
-          message:
-            "Use of 'xml.etree.ElementTree.parse' is vulnerable to XXE by
-            default."
-          severity: "HIGH"
-          pattern: |
-            xml\.etree\.ElementTree\.parse\s*\(`
-        - id: "PY-XXE-002"
-          message:
-            "'lxml.etree.parse' can be vulnerable to XXE if not configured
-            securely (e.g., resolve_entities=True)."
-          severity: "MEDIUM"
-          pattern: |
-            lxml\.etree\.parse\s*\(`
-      ast_sinks:
-        - "xml.etree.ElementTree.parse"
-        - "lxml.etree.parse"
-
-INSECURE_COOKIE:
-  description:
-    "Cookies created without the 'HttpOnly' or 'Secure' flags are vulnerable to
-    theft."
-  cwe: "CWE-1004"
-  severity: "MEDIUM"
-  language_specific:
-    java:
-      regex_patterns:
-        - id: "JAVA-COOKIE-001"
-          message: "Cookie 'HttpOnly' flag is explicitly set to false."
-          severity: "MEDIUM"
-          pattern: |
-            setHttpOnly\s*\(\s*false\s*\)
-        - id: "JAVA-COOKIE-002"
-          message:
-            "Cookie 'Secure' flag is explicitly set to false, allowing it to be
-            sent over HTTP."
-          severity: "MEDIUM"
-          pattern: |
-            setSecure\s*\(\s*false\s*\)
-    python:
-      regex_patterns:
-        - id: "PY-COOKIE-001"
-          message:
-            "Django 'SESSION_COOKIE_SECURE' is set to False. Cookies may be sent
-            over HTTP."
-          severity: "MEDIUM"
-          pattern: |
-            (?i)^\s*SESSION_COOKIE_SECURE\s*=\s*False
-        - id: "PY-COOKIE-002"
-          message:
-            "Django 'SESSION_COOKIE_HTTPONLY' is set to False. Cookies may be
-            read by client-side script."
-          severity: "MEDIUM"
-          pattern: |
-            (?i)^\s*SESSION_COOKIE_HTTPONLY\s*=\s*False
-        - id: "PY-COOKIE-003"
-          message: "Flask 'SESSION_COOKIE_SECURE' is not set to True."
-          severity: "MEDIUM"
-          pattern: |
-            (?i)^\s*app\.config\s*\[\s*['"]SESSION_COOKIE_SECURE['"]\s*\]\s*=\s*False
-        - id: "PY-COOKIE-004"
-          message: "Flask 'SESSION_COOKIE_HTTPONLY' is not set to True."
-          severity: "MEDIUM"
-          pattern: |
-            (?i)^\s*app\.config\s*\[\s*['"]SESSION_COOKIE_HTTPONLY['"]\s*\]\s*=\s*False
+      ast_sources: ["request.getParameter"]
+      ast_sinks: ["print", "println", "write", "sendError"]
+      ast_sanitizers: ["StringEscapeUtils.escapeHtml4", "HtmlUtils.htmlEscape"]
+    javascript:
+      ast_sources: ["req.query", "req.body", "document.location", "window.name"]
+      ast_sinks: ["innerHTML", "outerHTML", "document.write", "res.send", "res.render"]
+      ast_sanitizers: ["dompurify.sanitize", "escapeHtml"]
 
 SSRF:
-  description:
-    "Allowing an attacker to control the destination URL of a server-side
-    request can lead to SSRF."
+  description: "Attacker-controlled destination URL for server-side requests."
   cwe: "CWE-918"
   severity: "HIGH"
   language_specific:
     java:
-      ast_sources:
-        - "getParameter"
-      ast_sinks:
-        - "URL"
-        - "execute"
-        - "HttpGet"
-        - "HttpPost"
+      ast_sources: ["request.getParameter"]
+      ast_sinks: 
+        - name: "URL"
+          args: [0]
+        - name: "HttpGet"
+          args: [0]
+        - name: "HttpPost"
+          args: [0]
     python:
-      regex_patterns:
-        - id: "PY-SSRF-001"
-          message: "A request is made to a URL constructed from user input."
-          severity: "HIGH"
-          pattern: |
-            (requests\.(get|post)|urllib\.request\.urlopen)\s*\(.*\+.*(request\.(args|form|json))
-      ast_sources:
-        - "request.args.get"
-        - "request.form"
-      ast_sinks:
-        - "requests.get"
-        - "requests.post"
-        - "urllib.request.urlopen"
-  javascript:
-    ast_sources:
-      - "req.query"
-      - "req.body"
-    ast_sinks:
-      - "axios.get"
-      - "axios.post"
-      - "fetch"
-      - "http.request"
-      - "https.request"
+      ast_sources: ["request.args.get"]
+      ast_sinks: 
+        - name: "requests.get"
+          args: [0]
+        - name: "requests.post"
+          args: [0]
+        - name: "urllib.request.urlopen"
+          args: [0]
+        - name: "httpx.get"
+          args: [0]
+    javascript:
+      ast_sources: ["req.query"]
+      ast_sinks: 
+        - name: "axios.get"
+          args: [0]
+        - name: "fetch"
+          args: [0]
+        - name: "http.get"
+          args: [0]
 
-SESSION_FIXATION:
-  description:
-    "Failure to invalidate the user's session after login, which can allow an
-    attacker to use a known session ID."
-  cwe: "CWE-384"
+# --- INTEGRITY & DESERIALIZATION ---
+INSECURE_DESERIALIZATION:
+  description: "Deserializing untrusted data can lead to RCE."
+  cwe: "CWE-502"
+  severity: "CRITICAL"
+  language_specific:
+    java:
+      ast_sinks: ["readObject", "XMLDecoder.readObject"]
+    python:
+      ast_sinks: ["pickle.loads", "yaml.unsafe_load", "jsonpickle.decode"]
+
+PATH_TRAVERSAL:
+  description: "User input used to build a file path without validation."
+  cwe: "CWE-22"
+  severity: "HIGH"
+  language_specific:
+    java:
+      ast_sources: ["request.getParameter"]
+      ast_sinks: ["File", "FileInputStream", "FileOutputStream", "FileReader", "FileWriter"]
+    python:
+      ast_sources: ["request.args.get"]
+      ast_sinks: 
+        - name: "open"
+          args: [0]
+        - "os.path.join"
+        - name: "send_file"
+          args: [0]
+    javascript:
+      ast_sources: ["req.query"]
+      ast_sinks: 
+        - name: "fs.readFile"
+          args: [0]
+        - name: "fs.writeFile"
+          args: [0]
+        - name: "res.sendFile"
+          args: [0]
+
+# --- CRYPTOGRAPHY ---
+WEAK_CRYPTO:
+  description: "Use of outdated or weak cryptographic algorithms."
+  cwe: "CWE-327"
   severity: "MEDIUM"
   language_specific:
     java:
       regex_patterns:
-        - id: "JAVA-SESS-001"
-          message:
-            "A user attribute is set on the session. Ensure
-            'session.invalidate()' was called before this."
-          severity: "MEDIUM"
-          pattern: |
-            (?i)^\s*session\.setAttribute\s*\(\s*["'](user|username|uid|principal)["']
+        - id: "CRY-MD5-001"
+          message: "MD5 is insecure for hashing."
+          pattern: "MessageDigest\\.getInstance\\s*\\(\\s*['\"]MD5"
+        - id: "CRY-DES-001"
+          message: "DES is a weak cipher."
+          pattern: "Cipher\\.getInstance\\s*\\(\\s*['\"]DES"
     python:
       regex_patterns:
-        - id: "PY-SESS-001"
-          message:
-            "A user attribute is set on the session. Ensure session was
-            invalidated/regenerated on login."
-          severity: "MEDIUM"
-          pattern: |
-            (?i)^\s*session\s*\[\s*['"](user|username|uid)['"]\s*\]\s*=`
-
-# A04:2021 - Insecure Design
-DEPRECATED_API:
-  description:
-    "Using deprecated or obsolete functions that are known to be insecure, such
-    as Thread.stop()."
-  cwe: "CWE-477"
-  severity: "LOW"
-  language_specific:
-    java:
-      regex_patterns:
-        - id: "JAVA-DEPR-001"
-          message: "Insecure deprecated method 'Thread.stop()' is used."
-          severity: "LOW"
-          pattern: |
-            (?i)\.stop\s*\(\s*\)
-        - id: "JAVA-DEPR-002"
-          message:
-            "Insecure deprecated method 'Thread.suspend()' or 'Thread.resume()'
-            is used."
-          severity: "LOW"
-          pattern: |
-            (?i)\.(suspend|resume)\s*\(\s*\)
-    python:
-      regex_patterns:
-        - id: "PY-DEPR-001"
-          message:
-            "Use of 'os.popen' is deprecated and can be unsafe. Use 'subprocess'
-            module instead."
-          severity: "LOW"
-          pattern: |
-            os\.popen\s*\(`
-
-# A05:2021 - Security Misconfiguration
-INFORMATION_DISCLOSURE:
-  description:
-    "Application leaks sensitive information, such as in error messages or stack
-    traces."
-  cwe: "CWE-200"
-  severity: "LOW"
-  general_regex_patterns:
-    - id: "GEN-INFO-001"
-      message:
-        "The application prints a stack trace, which could leak sensitive
-        information to an attacker."
-      severity: "LOW"
-      pattern: |
-        (?i)^\s*e\.printStackTrace\(\s*\)
-  language_specific:
-    python:
-      regex_patterns:
-        - id: "PY-INFO-001"
-          message:
-            "'traceback.print_exc()' can leak sensitive information. Avoid in
-            production."
-          severity: "LOW"
-          pattern: |
-            traceback\.print_exc\s*\(`
-        - id: "PY-INFO-002"
-          message:
-            "Flask/Werkzeug running in debug mode. Do not use in production."
-          severity: "HIGH"
-          pattern: |
-            app\.run\s*\(.*debug\s*=\s*True
-
-# A08:2021 - Software and Data Integrity Failures
-INSECURE_REFLECTION:
-  description:
-    "Using unvalidated user input to control reflection (e.g., Class.forName())
-    can lead to RCE."
-  cwe: "CWE-470"
-  severity: "HIGH"
-  language_specific:
-    java:
-      regex_patterns:
-        - id: "JAVA-REFL-001"
-          message:
-            "Insecure call to 'Class.forName()' with concatenated user input."
-          severity: "HIGH"
-          pattern: |
-            (?i)^\s*Class\.forName\s*\(.*\+.*request\.getParameter
-      ast_sources:
-        - "getParameter"
-      ast_sinks:
-        - "forName"
-        - "invoke"
-        - "new" # (When used with reflection)
-    python:
-      regex_patterns:
-        - id: "PY-REFL-001"
-          message:
-            "Use of 'getattr', 'setattr', or '__import__' with user-controlled
-            data can be dangerous."
-          severity: "MEDIUM"
-          pattern: |
-            (getattr|setattr|__import__)\s*\(.*\+.*(request\.(args|form|json))
-      ast_sources:
-        - "request.args.get"
-        - "request.form"
-      ast_sinks:
-        - "getattr"
-        - "setattr"
-        - "__import__"
-
-# A03:2021 - Injection
-JNDI_INJECTION:
-  description:
-    "Using unvalidated user input in a JNDI lookup can lead to remote code
-    execution (RCE)."
-  cwe: "CWE-95" # (Related to code injection)
-  severity: "CRITICAL"
-  language_specific:
-    java:
-      regex_patterns:
-        - id: "JAVA-JNDI-001"
-          message:
-            "JNDI lookup 'InitialContext.lookup()' is called with concatenated
-            user input."
-          severity: "CRITICAL"
-          pattern: |
-            (?i)^\s*InitialContext\.lookup\s*\(.*\+.*\)
-      ast_sources:
-        - "getParameter"
-      ast_sinks:
-        - "lookup"
-    python: {} # Java-specific vulnerability
+        - id: "CRY-PY-001"
+          message: "MD5 or SHA1 found in hashlib."
+          pattern: "hashlib\\.(md5|sha1)\\s*\\("

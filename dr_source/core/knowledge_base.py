@@ -118,3 +118,14 @@ class KnowledgeBaseLoader:
     def get_lang_ast_sinks(self, detector_name: str, language: str) -> List[str]:
         lang_rules = self._get_lang_rules(detector_name, language)
         return lang_rules.get("ast_sinks", [])
+
+    def get_lang_ast_sanitizers(self, detector_name: str, language: str) -> List[str]:
+        lang_rules = self._get_lang_rules(detector_name, language)
+        return lang_rules.get("ast_sanitizers", [])
+
+    def get_all_vuln_types(self) -> List[str]:
+        return list(self.rules.keys())
+
+    def get_pattern(self, detector_name: str, language: str) -> Optional[str]:
+        lang_rules = self._get_lang_rules(detector_name, language)
+        return lang_rules.get("pattern")

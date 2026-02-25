@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from tree_sitter import Tree
 from .taint_visitor import TaintVisitor
 
@@ -13,11 +13,13 @@ class TaintDetector:
         ast_tree: Tree,
         source_code: bytes,
         source_list: List[str],
-        sink_list: List[str],
+        sink_list: List[Any],
+        sanitizer_list: List[str],
         vuln_prefix: str,
+        project_index: Optional[Any] = None,
     ) -> List[Dict[str, Any]]:
         # 1. Create the visitor
-        visitor = TaintVisitor(source_list, sink_list, source_code)
+        visitor = TaintVisitor(source_list, sink_list, sanitizer_list, source_code, project_index)
 
         # 2. Run the visit
         visitor.visit(ast_tree.root_node)

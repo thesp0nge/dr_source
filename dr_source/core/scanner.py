@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.db import ScanDatabase
+from dr_source.core.project_index import ProjectIndex
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +20,8 @@ class Scanner:
 
     def __init__(self, target_path: str):
         self.target_path = target_path
-        # Use the target_path to initialize the database
-        # This reuses your existing sanitization logic in the DB class
         self.db = ScanDatabase(project_name=target_path)
+        self.project_index = ProjectIndex()
 
         # This will hold { ".java": [JavaPlugin], ".*": [RegexPlugin], ... }
         self.extension_map: Dict[str, List[AnalyzerPlugin]] = {}
@@ -32,6 +32,19 @@ class Scanner:
         self.all_findings: List[Vulnerability] = []
 
         self.load_plugins()
+        logger.debug(f"Extension Map: {self.extension_map.keys()}")
+        
+        # Define common directories and file extensions to ignore
+        self.ignored_dirs = [
+            ".git", ".svn", ".hg", "__pycache__", "node_modules", "vendor",
+            "dist", "build", "target", "out", "bin", "tmp", "temp", "log",
+            "test-output", "report", "results" # Added 'results' based on previous observation
+        ]
+        self.ignored_extensions = [
+            ".log", ".tmp", ".temp", ".bak", ".swp", ".class", ".jar", ".war",
+            ".ear", ".dll", ".exe", ".o", ".so", ".obj", ".pyc", ".pyo",
+            ".iml", ".ipr", ".iws", ".md", ".txt", ".json", ".xml", ".yaml", ".yml"
+        ]
 
     def load_plugins(self):
         """
@@ -76,21 +89,53 @@ class Scanner:
         # 1. Collection Phase: Find all files that have at least one plugin
         logger.info("Collecting files to scan...")
         files_to_scan = []
-        for root, _, files in os.walk(self.target_path):
-            for file in files:
+
+        if os.path.isfile(self.target_path):
+            file = os.path.basename(self.target_path)
+            # Skip ignored file extensions
+            if not any(file.endswith(ext) for ext in self.ignored_extensions):
                 _, ext = os.path.splitext(file)
-
-                # Check if we have specific plugins OR a catch-all plugin (like regex)
-                # This filtering ensures the progress bar count is accurate
-                plugins = self.extension_map.get(ext, []) + self.extension_map.get(
-                    ".*", []
-                )
-
+                plugins = self.extension_map.get(ext, []) + self.extension_map.get(".*", [])
                 if plugins:
-                    files_to_scan.append(os.path.join(root, file))
+                    files_to_scan.append(self.target_path)
+        elif os.path.isdir(self.target_path):
+            for root, dirs, files in os.walk(self.target_path):
+                for file in files:
+                    # Skip ignored directories
+                    for ignored_dir in self.ignored_dirs:
+                        if ignored_dir in root:
+                            continue # Skip to next file
+                    
+                    # Skip ignored file extensions
+                    if any(file.endswith(ext) for ext in self.ignored_extensions):
+                        continue # Skip to next file
+
+                    _, ext = os.path.splitext(file)
+
+                    # Check if we have specific plugins OR a catch-all plugin (like regex)
+                    # This filtering ensures the progress bar count is accurate
+                    plugins = self.extension_map.get(ext, []) + self.extension_map.get(
+                        ".*", []
+                    )
+
+                    if plugins:
+                        files_to_scan.append(os.path.join(root, file))
+        else:
+            logger.warning(f"Target path '{self.target_path}' is neither a file nor a directory. Skipping scan.")
+
+        logger.debug(f"Files to scan: {files_to_scan}")
+
+        # 1.5 Indexing Phase: Collect global symbols across all files
+        for file_path in tqdm(files_to_scan, desc="Indexing project", unit="file"):
+            _, ext = os.path.splitext(file_path)
+            plugins = self.extension_map.get(ext, []) + self.extension_map.get(".*", [])
+            for plugin in plugins:
+                try:
+                    plugin.index(file_path, self.project_index)
+                except Exception as e:
+                    logger.error(f"Indexing failed for {plugin.name} on {file_path}: {e}")
 
         # 2. Analysis Phase: Iterate with Progress Bar
-        #    tqdm wraps the list and handles the UI automatically
         for file_path in tqdm(files_to_scan, desc="Analyzing files", unit="file"):
             _, ext = os.path.splitext(file_path)
 
@@ -100,6 +145,10 @@ class Scanner:
 
             for plugin in plugins_to_run:
                 try:
+                    # Pass the project index to the plugin if it supports it
+                    if hasattr(plugin, 'project_index'):
+                        plugin.project_index = self.project_index
+                    
                     findings = plugin.analyze(file_path)
                     all_findings_dataclass.extend(findings)
                 except Exception as e:
