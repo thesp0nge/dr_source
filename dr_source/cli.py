@@ -54,6 +54,12 @@ except ImportError:
     is_flag=True,
     help="List all scanned projects and their summary.",
 )
+@click.option(
+    "--timeout",
+    type=int,
+    default=0,
+    help="Timeout in seconds for scanning each file. 0 means no timeout.",
+)
 def main(
     target_path,
     init_db,
@@ -67,6 +73,7 @@ def main(
     show_trace,
     show_version,
     list_scans_flag,
+    timeout,
 ):
     """
     DRSource - A multi-language static analysis tool.
@@ -186,7 +193,7 @@ def main(
     click.echo(f"Starting scan on {target_path}...")
 
     # 1. Instantiate and run the new scanner
-    scanner = Scanner(target_path=target_path)
+    scanner = Scanner(target_path=target_path, timeout=timeout)
     scanner.scan()  # This does everything
 
     # 2. Get results back from the scanner's DB instance

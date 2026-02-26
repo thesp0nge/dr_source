@@ -8,6 +8,7 @@ from tqdm import tqdm
 from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.db import ScanDatabase
 from dr_source.core.project_index import ProjectIndex
+from dr_source.core.utils import timeout_session, TimeoutException
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,9 @@ class Scanner:
     running all registered analyzer plugins.
     """
 
-    def __init__(self, target_path: str):
+    def __init__(self, target_path: str, timeout: int = 0):
         self.target_path = target_path
+        self.timeout = timeout
         self.db = ScanDatabase(project_name=target_path)
         self.project_index = ProjectIndex()
 
@@ -129,11 +131,19 @@ class Scanner:
         for file_path in tqdm(files_to_scan, desc="Indexing project", unit="file"):
             _, ext = os.path.splitext(file_path)
             plugins = self.extension_map.get(ext, []) + self.extension_map.get(".*", [])
-            for plugin in plugins:
-                try:
-                    plugin.index(file_path, self.project_index)
-                except Exception as e:
-                    logger.error(f"Indexing failed for {plugin.name} on {file_path}: {e}")
+            
+            try:
+                with timeout_session(self.timeout):
+                    for plugin in plugins:
+                        try:
+                            plugin.index(file_path, self.project_index)
+                        except (KeyboardInterrupt, TimeoutException):
+                            raise
+                        except Exception as e:
+                            logger.error(f"Indexing failed for {plugin.name} on {file_path}: {e}")
+            except TimeoutException:
+                logger.error(f"Indexing timed out for {file_path} after {self.timeout} seconds. Skipping file.")
+                continue
 
         # 2. Analysis Phase: Iterate with Progress Bar
         for file_path in tqdm(files_to_scan, desc="Analyzing files", unit="file"):
@@ -143,17 +153,24 @@ class Scanner:
             plugins_to_run = self.extension_map.get(ext, [])
             plugins_to_run.extend(self.extension_map.get(".*", []))
 
-            for plugin in plugins_to_run:
-                try:
-                    # Pass the project index to the plugin if it supports it
-                    if hasattr(plugin, 'project_index'):
-                        plugin.project_index = self.project_index
-                    
-                    findings = plugin.analyze(file_path)
-                    all_findings_dataclass.extend(findings)
-                except Exception as e:
-                    # Log to file/stderr so it doesn't break the progress bar
-                    logger.error(f"Plugin {plugin.name} failed on {file_path}: {e}")
+            try:
+                with timeout_session(self.timeout):
+                    for plugin in plugins_to_run:
+                        try:
+                            # Pass the project index to the plugin if it supports it
+                            if hasattr(plugin, 'project_index'):
+                                plugin.project_index = self.project_index
+                            
+                            findings = plugin.analyze(file_path)
+                            all_findings_dataclass.extend(findings)
+                        except (KeyboardInterrupt, TimeoutException):
+                            raise
+                        except Exception as e:
+                            # Log to file/stderr so it doesn't break the progress bar
+                            logger.error(f"Plugin {plugin.name} failed on {file_path}: {e}")
+            except TimeoutException:
+                logger.error(f"Analysis timed out for {file_path} after {self.timeout} seconds. Skipping file.")
+                continue
 
         # 3. Save Results
         all_findings_dict = []

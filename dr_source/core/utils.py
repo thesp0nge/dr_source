@@ -1,4 +1,34 @@
+import signal
+from contextlib import contextmanager
 from typing import Dict, Any, List
+
+
+class TimeoutException(Exception):
+    """Exception raised when a scan operation times out."""
+    pass
+
+
+@contextmanager
+def timeout_session(seconds: int):
+    """
+    A context manager that raises a TimeoutException after 'seconds' seconds.
+    Uses signal.alarm, so it only works on Unix-like systems and in the main thread.
+    """
+    def signal_handler(signum, frame):
+        raise TimeoutException("Operation timed out!")
+
+    if seconds > 0:
+        # Register the signal handler and set the alarm
+        old_handler = signal.signal(signal.SIGALRM, signal_handler)
+        signal.alarm(seconds)
+    
+    try:
+        yield
+    finally:
+        if seconds > 0:
+            # Disable the alarm and restore the old handler
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
 
 
 def deep_merge(target: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]:

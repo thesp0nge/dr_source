@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.103.0] - 2026-02-26
+
+### Added
+
+- **Per-File Timeout Mechanism:**
+  - Implemented a new timeout system that monitors the indexing and analysis of individual files.
+  - If a file takes too long to process (e.g., due to complex AST structures or recursive flows), the scanner will log an error, skip the problematic file, and continue with the rest of the codebase.
+  - This ensures that a single "hanging" file does not block the entire scanning process.
+- **CLI --timeout Option:**
+  - Added a new `--timeout <seconds>` option to the main CLI.
+  - Users can specify the maximum duration allowed for each file's indexing and analysis phases separately.
+  - Default is `0` (no timeout).
+
+### Changed
+
+- **Scanner Robustness:** Updated the core scanner to gracefully handle `TimeoutException` and `KeyboardInterrupt` during plugin execution.
+
 ## [0.102.0] - 2026-02-25
 
 ### Added

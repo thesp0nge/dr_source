@@ -60,6 +60,9 @@ dr_source /path/to/codebase
 # View full data-flow traces (including inter-file hops)
 dr_source --show-trace /path/to/codebase
 
+# Set a per-file timeout (e.g., 30 seconds)
+dr_source --timeout 30 /path/to/codebase
+
 # Export to SARIF for CI/CD integration
 dr_source --export sarif --output report.sarif /path/to/codebase
 
