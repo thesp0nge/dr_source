@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.104.0] - 2026-02-26
+
+### Added
+
+- **Keyboard Interrupt Skip Shortcut:**
+  - Implemented a "Skip File" shortcut using `Ctrl+C`.
+  - Pressing `Ctrl+C` once during the indexing or analysis of a file will now interrupt only that specific file and skip to the next one, rather than aborting the entire scan.
+  - Added a "Double Ctrl+C" protection: if `Ctrl+C` is pressed twice within 2 seconds, the scan will be aborted completely. This provides a user-friendly way to skip slow/stuck files while maintaining the ability to exit.
+
+### Fixed
+
+- **Scanner Lifecycle Test:** Updated `tests/test_scanner.py` to correctly reflect the current number of test files (5 instead of 3), fixing an `AssertionError` in the CI/test suite.
+
 ## [0.103.0] - 2026-02-26
 
 ### Added

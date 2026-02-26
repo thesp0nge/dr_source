@@ -32,6 +32,7 @@ class Scanner:
         self.num_files_analyzed: int = 0
         self.scan_duration: float = 0.0
         self.all_findings: List[Vulnerability] = []
+        self.last_interrupt_time: float = 0.0
 
         self.load_plugins()
         logger.debug(f"Extension Map: {self.extension_map.keys()}")
@@ -137,12 +138,20 @@ class Scanner:
                     for plugin in plugins:
                         try:
                             plugin.index(file_path, self.project_index)
-                        except (KeyboardInterrupt, TimeoutException):
+                        except TimeoutException:
                             raise
                         except Exception as e:
                             logger.error(f"Indexing failed for {plugin.name} on {file_path}: {e}")
             except TimeoutException:
                 logger.error(f"Indexing timed out for {file_path} after {self.timeout} seconds. Skipping file.")
+                continue
+            except KeyboardInterrupt:
+                current_time = time.time()
+                if current_time - self.last_interrupt_time < 2:
+                    logger.warning("\nDouble Ctrl+C detected. Aborting scan...")
+                    raise
+                self.last_interrupt_time = current_time
+                logger.warning(f"\nIndexing interrupted by user for {file_path}. Skipping to next file... (Press Ctrl+C again to abort)")
                 continue
 
         # 2. Analysis Phase: Iterate with Progress Bar
@@ -163,13 +172,21 @@ class Scanner:
                             
                             findings = plugin.analyze(file_path)
                             all_findings_dataclass.extend(findings)
-                        except (KeyboardInterrupt, TimeoutException):
+                        except TimeoutException:
                             raise
                         except Exception as e:
                             # Log to file/stderr so it doesn't break the progress bar
                             logger.error(f"Plugin {plugin.name} failed on {file_path}: {e}")
             except TimeoutException:
                 logger.error(f"Analysis timed out for {file_path} after {self.timeout} seconds. Skipping file.")
+                continue
+            except KeyboardInterrupt:
+                current_time = time.time()
+                if current_time - self.last_interrupt_time < 2:
+                    logger.warning("\nDouble Ctrl+C detected. Aborting scan...")
+                    raise
+                self.last_interrupt_time = current_time
+                logger.warning(f"\nAnalysis interrupted by user for {file_path}. Skipping to next file... (Press Ctrl+C again to abort)")
                 continue
 
         # 3. Save Results

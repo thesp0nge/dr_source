@@ -94,7 +94,7 @@ class TestScanner(unittest.TestCase):
 
         # Arg 2: list of vulnerability dictionaries
         stored_vulns_list = store_call_args[1]
-        self.assertEqual(len(stored_vulns_list), 3)
+        self.assertEqual(len(stored_vulns_list), 5)
 
         # Check the dictionary content
         stored_vuln_dict = stored_vulns_list[0]
@@ -112,6 +112,6 @@ class TestScanner(unittest.TestCase):
         self.assertEqual(summary_call.args[0], 123)
 
         # Check the keyword arguments
-        self.assertEqual(summary_call.kwargs["num_vulnerabilities"], 3)
+        self.assertEqual(summary_call.kwargs["num_vulnerabilities"], 5)
         self.assertGreater(summary_call.kwargs["num_files_analyzed"], 0)
         self.assertGreater(summary_call.kwargs["scan_duration"], 0)
