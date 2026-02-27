@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.110.0] - 2026-02-27
+
+### Added
+
+- **Semgrep-Compatible Boolean Engine:**
+  - Implemented a recursive logical evaluator for pattern matching.
+  - Support for `patterns` (AND), `pattern-either` (OR), and `pattern-not` (NOT) operators in the Knowledge Base.
+  - This allows for sophisticated rules that combine multiple conditions and exclusions without touching the core code.
+- **Metavariable Unification:**
+  - Upgraded the pattern matching engine to support real metavariable unification ($X, $Y).
+  - The engine now ensures that multiple occurrences of the same metavariable name within a single pattern must match identical AST nodes.
+- **Constant Propagation & Literal Tracking:**
+  - Implemented a data-flow constant propagation engine for Python, Java, and JavaScript.
+  - The engine now identifies hardcoded string literals, numbers, and their simple concatenations.
+  - **False Positive Reduction:** Taint analysis now ignores "sinks" that receive known safe constant values, drastically reducing noise in results.
+- **Multi-Language Pattern Matching:**
+  - Extended the `PatternAnalyzer` to support Java and JavaScript using Tree-sitter.
+  - Pattern matching now respects the structural syntax of the target language, enabling `$X` matching for expressions and statements in JS/Java.
+- **Expanded Knowledge Base:**
+  - Added dozens of new vulnerability categories and framework-specific rules.
+  - **New Categories:** NoSQL Injection (MongoDB), SSTI (Jinja2, EJS, Pug), XXE (XML Parsers), Open Redirect, Prototype Pollution (JS), Insecure Randomness, LDAP/XPath Injection.
+  - Added new high-entropy patterns for GCP keys and JWT tokens.
+
+### Fixed
+
+- **JavaScript Sink Detection:** Fixed a bug where property-based sinks (like `innerHTML`) were not detected when used in assignment expressions.
+- **Pattern Matcher Duplication:** Resolved an issue where some patterns were reported twice due to nested AST node visitation (e.g., `expression_statement` wrapping a `call_expression`).
+- **Plugin Loading:** Fixed a `NameError` and an `AbstractMethodError` in the `PatternAnalyzer` plugin.
+
 ## [0.104.0] - 2026-02-26
 
 ### Added
@@ -236,7 +265,7 @@ Implemented full taint-propagation tracing for the PythonAstAnalyzer. The plugin
 now generates and stores the complete data flow (e.g., "Tainted by source ->
 Propagated to var -> Used in sink").
 
-Added new test cases to test_python_ast_analyzer.py to validate taint
+Added new test cases to test_python_ast_analyzer.py to validate python taint
 propagation through string concatenation (BinOp) and f-strings (JoinedStr).
 
 The Vulnerability object in dr_source/api.py now includes a trace: List[str]

@@ -129,3 +129,15 @@ class KnowledgeBaseLoader:
     def get_pattern(self, detector_name: str, language: str) -> Optional[str]:
         lang_rules = self._get_lang_rules(detector_name, language)
         return lang_rules.get("pattern")
+
+    def get_patterns_logic(self, detector_name: str, language: str) -> Dict[str, Any]:
+        """
+        Retrieves the complex pattern logic (patterns, pattern-either, pattern-not)
+        for a given detector and language.
+        """
+        lang_rules = self._get_lang_rules(detector_name, language)
+        logic = {}
+        for key in ["patterns", "pattern-either", "pattern-not", "pattern"]:
+            if key in lang_rules:
+                logic[key] = lang_rules[key]
+        return logic

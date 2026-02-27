@@ -10,6 +10,7 @@ class TaintVisitor:
         self, source_list: List[str], sink_list: List[Any], sanitizer_list: List[str], source_code: bytes, project_index: Optional[Any] = None, depth: int = 0, initial_scope: Optional[Dict[str, Any]] = None
     ):
         self.scopes: List[Dict[str, Dict[str, Any]]] = [initial_scope if initial_scope else {}]
+        self.constants: List[Dict[str, Any]] = [initial_scope if initial_scope else {}] # Track literal values
         self.vulnerabilities: List[Dict[str, Any]] = []
         self.functions: Dict[str, Node] = {} 
         self.project_index = project_index
@@ -44,11 +45,38 @@ class TaintVisitor:
             if var_name in scope: return scope[var_name]
         return None
 
+    def get_constant(self, var_name: str) -> Any:
+        for scope in reversed(self.constants):
+            if var_name in scope: return scope[var_name]
+        return None
+
+    def set_constant(self, var_name: str, value: Any):
+        self.constants[-1][var_name] = value
+
     def set_tainted(self, var_name: str, data: Dict[str, Any]):
         self.scopes[-1][var_name] = data
+        if var_name in self.constants[-1]: del self.constants[-1][var_name]
 
     def clear_taint(self, var_name: str):
         if var_name in self.scopes[-1]: del self.scopes[-1][var_name]
+
+    def _resolve_value(self, node: Node) -> Any:
+        """Attempts to resolve a Java node to a constant value."""
+        if node.type in ["string_literal", "decimal_integer_literal"]:
+            val = self.get_text(node)
+            return val.strip("'\"")
+        if node.type == "identifier":
+            return self.get_constant(self.get_text(node))
+        if node.type == "binary_expression":
+            left_node = node.child_by_field_name("left")
+            right_node = node.child_by_field_name("right")
+            op_node = [c for c in node.children if c.type == "+"]
+            if left_node and right_node and op_node:
+                l_val = self._resolve_value(left_node)
+                r_val = self._resolve_value(right_node)
+                if isinstance(l_val, str) and isinstance(r_val, str):
+                    return l_val + r_val
+        return None
 
     def collect_identifiers(self, node: Node, alt_code: Optional[bytes] = None) -> Set[str]:
         ids = set()
@@ -77,7 +105,9 @@ class TaintVisitor:
             else:
                 should_push = True
 
-        if should_push: self.scopes.append({})
+        if should_push:
+            self.scopes.append({})
+            self.constants.append({})
 
         if node.type == "variable_declarator":
             name_node = node.child_by_field_name("name")
@@ -93,7 +123,6 @@ class TaintVisitor:
 
         elif node.type == "method_invocation":
             method_name = self.get_method_name(node)
-            # SINK RESOLUTION WITH SUFFIX SUPPORT
             match_name = None
             if method_name in self.sinks: match_name = method_name
             else:
@@ -116,9 +145,17 @@ class TaintVisitor:
                     self._simulate_call(node, func_def, method_name, target_file, target_code)
 
         for child in node.children: self.visit(child)
-        if should_push: self.scopes.pop()
+        if should_push:
+            self.constants.pop()
+            self.scopes.pop()
 
     def _handle_assignment(self, var_name: str, value_node: Node, line: int):
+        const_val = self._resolve_value(value_node)
+        if const_val is not None:
+            self.set_constant(var_name, const_val)
+            self.clear_taint(var_name)
+            return
+
         if value_node.type == "method_invocation":
             name = self.get_method_name(value_node)
             if name in self.sanitizers:
@@ -138,6 +175,10 @@ class TaintVisitor:
         actual_args = [child for child in args_node.children if child.is_named]
         for idx, arg in enumerate(actual_args):
             if vuln_args is not None and idx not in vuln_args: continue
+            
+            if self._resolve_value(arg) is not None:
+                continue
+
             for var_name in self.collect_identifiers(arg):
                 taint = self.is_tainted(var_name)
                 if taint:

@@ -33,13 +33,7 @@ SQL_INJECTION:
         - id: "JAVA-SQLI-001"
           message: "SQL query is directly concatenated with user input (request.getParameter)."
           pattern: "(?i)(SELECT|INSERT|UPDATE|DELETE)\\s+.*\\s+FROM\\s+.*\\+.*request\\.getParameter"
-        - id: "JAVA-SQLI-002"
-          message: "Insecure 'Statement.execute' call with string concatenation."
-          pattern: "(?i)^\\s*Statement\\.execute(Query|Update)?\\s*\\(.*\\+.*\\)"
-      ast_sources:
-        - "request.getParameter"
-        - "request.getHeader"
-        - "request.getCookie"
+      ast_sources: ["request.getParameter", "request.getHeader", "request.getCookie", "@RequestParam", "@PathVariable", "@RequestBody"]
       ast_sinks:
         - name: "executeQuery"
           args: [0]
@@ -49,32 +43,23 @@ SQL_INJECTION:
           args: [0]
         - name: "prepareCall"
           args: [0]
-      ast_sanitizers:
-        - "prepareStatement" # Using prepared statements is a natural sanitizer
-        - "setLong"
-        - "setInt"
-        - "setBoolean"
-        - "StringEscapeUtils.escapeSql"
+        - name: "jdbcTemplate.query"
+          args: [0]
+      ast_sanitizers: ["prepareStatement", "setLong", "setInt", "setBoolean", "StringEscapeUtils.escapeSql"]
     python:
-      ast_sources:
-        - "request.args.get"
-        - "request.form"
-        - "request.json"
-        - "request.GET.get"
+      ast_sources: ["request.args.get", "request.form.get", "request.values.get", "request.json.get", "request.args", "request.form", "self.request.GET", "self.request.POST"]
       ast_sinks:
         - name: "cursor.execute"
           args: [0]
         - name: "session.execute"
           args: [0]
-      ast_sanitizers:
-        - "int"
-        - "float"
-        - "bool"
+        - name: "db.engine.execute"
+          args: [0]
+        - name: "RawSQL"
+          args: [0]
+      ast_sanitizers: ["int", "float", "bool", "django.utils.html.escape"]
     javascript:
-      ast_sources:
-        - "req.query"
-        - "req.body"
-        - "req.params"
+      ast_sources: ["req.query", "req.body", "req.params", "req.headers"]
       ast_sinks:
         - name: "db.query"
           args: [0]
@@ -84,9 +69,21 @@ SQL_INJECTION:
           args: [0]
         - name: "prisma.$queryRaw"
           args: [0]
-      ast_sanitizers:
-        - "escape"
-        - "validator.escape"
+        - name: "pg.query"
+          args: [0]
+      ast_sanitizers: ["escape", "validator.escape", "mysql.escape"]
+
+NOSQL_INJECTION:
+  description: "Unsanitized user input in NoSQL queries (e.g., MongoDB)."
+  cwe: "CWE-943"
+  severity: "HIGH"
+  language_specific:
+    javascript:
+      ast_sources: ["req.query", "req.body", "req.params"]
+      ast_sinks: ["find", "findOne", "findOneAndUpdate", "updateMany", "countDocuments", "aggregate"]
+    python:
+      ast_sources: ["request.args.get", "request.form.get", "request.json.get", "request.args", "request.json"]
+      ast_sinks: ["collection.find", "db.users.find", "collection.insert_one", "collection.update_one"]
 
 COMMAND_INJECTION:
   description: "OS commands built using unvalidated user input."
@@ -99,8 +96,10 @@ COMMAND_INJECTION:
         - name: "exec"
           args: [0]
         - "ProcessBuilder"
+        - name: "Runtime.getRuntime().exec"
+          args: [0]
     python:
-      ast_sources: ["request.args.get", "request.form"]
+      ast_sources: ["request.args.get", "request.form.get"]
       ast_sinks: 
         - name: "os.system"
           args: [0]
@@ -109,6 +108,10 @@ COMMAND_INJECTION:
         - name: "subprocess.run"
           args: [0]
         - name: "subprocess.Popen"
+          args: [0]
+        - name: "subprocess.call"
+          args: [0]
+        - name: "subprocess.check_output"
           args: [0]
         - name: "eval"
           args: [0]
@@ -121,8 +124,54 @@ COMMAND_INJECTION:
           args: [0]
         - name: "child_process.spawn"
           args: [0]
+        - name: "child_process.execSync"
+          args: [0]
         - name: "eval"
           args: [0]
+
+LDAP_INJECTION:
+  description: "User input used to construct LDAP queries without validation."
+  cwe: "CWE-90"
+  severity: "HIGH"
+  language_specific:
+    java:
+      ast_sinks: ["search", "lookup"]
+    python:
+      ast_sinks: ["ldap.search_s", "ldap.search", "ldap3.Connection.search"]
+    javascript:
+      ast_sinks: ["client.search"]
+
+XPATH_INJECTION:
+  description: "User input used to construct XPath queries without validation."
+  cwe: "CWE-91"
+  severity: "HIGH"
+  language_specific:
+    java:
+      ast_sinks: ["XPath.evaluate"]
+    python:
+      ast_sinks: ["lxml.etree.XPath", "tree.xpath"]
+    javascript:
+      ast_sinks: ["xpath.select"]
+
+SSTI:
+  description: "Server-Side Template Injection allows attackers to execute code within a template engine."
+  cwe: "CWE-94"
+  severity: "CRITICAL"
+  language_specific:
+    python:
+      ast_sources: ["request.args.get", "request.form.get", "request.args", "request.form"]
+      ast_sinks:
+        - name: "render_template_string"
+          args: [0]
+        - name: "Template"
+          args: [0]
+        - name: "Mako.template.Template"
+          args: [0]
+    java:
+      ast_sinks: ["evaluate", "process"]
+    javascript:
+      ast_sources: ["req.query", "req.body"]
+      ast_sinks: ["ejs.render", "pug.compile", "handlebars.compile", "mustache.render"]
 
 # --- DATA EXPOSURE & SECRETS ---
 HARDCODED_SECRET:
@@ -136,15 +185,21 @@ HARDCODED_SECRET:
     - id: "SEC-AWS-002"
       message: "AWS Secret Access Key found."
       pattern: "(?i)aws_secret_access_key\\s*[=:]\\s*['\"][A-Za-z0-9/+=]{40}['\"]"
+    - id: "SEC-GCP-001"
+      message: "Google Cloud API Key found."
+      pattern: "AIza[0-9A-Za-z-_]{35}"
     - id: "SEC-GH-001"
       message: "GitHub Personal Access Token found."
       pattern: "ghp_[A-Za-z0-9]{36}"
     - id: "SEC-STRIPE-001"
       message: "Stripe API Key found."
       pattern: "sk_live_[0-9a-zA-Z]{24}"
-    - id: "SEC-GENERIC-001"
-      message: "Generic high-entropy password or secret."
-      pattern: "(?i)(password|passwd|pwd|secret|auth|token|api_key|apikey)\\s*[=:]\\s*['\"](.{8,})['\"]"
+    - id: "SEC-JWT-001"
+      message: "Potential JWT Token found."
+      pattern: "eyJ[A-Za-z0-9-_=]+\\.eyJ[A-Za-z0-9-_=]+\\.[A-Za-z0-9-_.+/=]*"
+    - id: "SEC-PRIVATE-KEY"
+      message: "Private Key found."
+      pattern: "-----BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY-----"
 
 # --- WEB VULNERABILITIES ---
 XSS:
@@ -154,11 +209,11 @@ XSS:
   language_specific:
     java:
       ast_sources: ["request.getParameter"]
-      ast_sinks: ["print", "println", "write", "sendError"]
+      ast_sinks: ["print", "println", "write", "sendError", "ModelAndView"]
       ast_sanitizers: ["StringEscapeUtils.escapeHtml4", "HtmlUtils.htmlEscape"]
     javascript:
       ast_sources: ["req.query", "req.body", "document.location", "window.name"]
-      ast_sinks: ["innerHTML", "outerHTML", "document.write", "res.send", "res.render"]
+      ast_sinks: ["innerHTML", "outerHTML", "document.write", "res.send", "res.render", "dangerouslySetInnerHTML"]
       ast_sanitizers: ["dompurify.sanitize", "escapeHtml"]
 
 SSRF:
@@ -168,33 +223,37 @@ SSRF:
   language_specific:
     java:
       ast_sources: ["request.getParameter"]
-      ast_sinks: 
-        - name: "URL"
-          args: [0]
-        - name: "HttpGet"
-          args: [0]
-        - name: "HttpPost"
-          args: [0]
+      ast_sinks: ["URL", "HttpGet", "HttpPost", "OkHttpClient.newCall"]
     python:
       ast_sources: ["request.args.get"]
-      ast_sinks: 
-        - name: "requests.get"
-          args: [0]
-        - name: "requests.post"
-          args: [0]
-        - name: "urllib.request.urlopen"
-          args: [0]
-        - name: "httpx.get"
-          args: [0]
+      ast_sinks: ["requests.get", "requests.post", "urllib.request.urlopen", "httpx.get", "aiohttp.ClientSession.get"]
     javascript:
       ast_sources: ["req.query"]
-      ast_sinks: 
-        - name: "axios.get"
-          args: [0]
-        - name: "fetch"
-          args: [0]
-        - name: "http.get"
-          args: [0]
+      ast_sinks: ["axios.get", "fetch", "http.get", "request.get"]
+
+OPEN_REDIRECT:
+  description: "Unvalidated user input used in a redirect destination."
+  cwe: "CWE-601"
+  severity: "MEDIUM"
+  language_specific:
+    python:
+      ast_sources: ["request.args.get", "request.form.get", "request.args", "request.form"]
+      ast_sinks: ["redirect", "HttpResponseRedirect", "redirect_to"]
+    javascript:
+      ast_sources: ["req.query", "req.body"]
+      ast_sinks: ["res.redirect", "window.location.replace", "location.href"]
+    java:
+      ast_sources: ["request.getParameter"]
+      ast_sinks: ["sendRedirect", "redirect"]
+
+PROTOTYPE_POLLUTION:
+  description: "User input used to pollute the prototype of a JavaScript object."
+  cwe: "CWE-1321"
+  severity: "HIGH"
+  language_specific:
+    javascript:
+      ast_sources: ["req.query", "req.body", "JSON.parse"]
+      ast_sinks: ["merge", "extend", "lodash.merge", "lodash.extend", "Object.assign"]
 
 # --- INTEGRITY & DESERIALIZATION ---
 INSECURE_DESERIALIZATION:
@@ -203,9 +262,21 @@ INSECURE_DESERIALIZATION:
   severity: "CRITICAL"
   language_specific:
     java:
-      ast_sinks: ["readObject", "XMLDecoder.readObject"]
+      ast_sinks: ["readObject", "XMLDecoder.readObject", "ObjectMapper.readValue"]
     python:
-      ast_sinks: ["pickle.loads", "yaml.unsafe_load", "jsonpickle.decode"]
+      ast_sinks: ["pickle.loads", "yaml.unsafe_load", "jsonpickle.decode", "shelve.open"]
+
+XXE:
+  description: "XML External Entity injection can lead to local file disclosure or SSRF."
+  cwe: "CWE-611"
+  severity: "HIGH"
+  language_specific:
+    java:
+      ast_sources: ["request.getParameter"]
+      ast_sinks: ["DocumentBuilder.parse", "SAXParser.parse", "XMLStreamReader.next"]
+    python:
+      ast_sources: ["request.args.get", "request.form.get", "request.args", "request.form"]
+      ast_sinks: ["lxml.etree.fromstring", "xml.dom.minidom.parseString", "xml.etree.ElementTree.fromstring"]
 
 PATH_TRAVERSAL:
   description: "User input used to build a file path without validation."
@@ -217,23 +288,12 @@ PATH_TRAVERSAL:
       ast_sinks: ["File", "FileInputStream", "FileOutputStream", "FileReader", "FileWriter"]
     python:
       ast_sources: ["request.args.get"]
-      ast_sinks: 
-        - name: "open"
-          args: [0]
-        - "os.path.join"
-        - name: "send_file"
-          args: [0]
+      ast_sinks: ["open", "os.path.join", "send_file", "pathlib.Path"]
     javascript:
       ast_sources: ["req.query"]
-      ast_sinks: 
-        - name: "fs.readFile"
-          args: [0]
-        - name: "fs.writeFile"
-          args: [0]
-        - name: "res.sendFile"
-          args: [0]
+      ast_sinks: ["fs.readFile", "fs.writeFile", "res.sendFile", "path.join"]
 
-# --- CRYPTOGRAPHY ---
+# --- CRYPTOGRAPHY & RANDOMNESS ---
 WEAK_CRYPTO:
   description: "Use of outdated or weak cryptographic algorithms."
   cwe: "CWE-327"
@@ -252,3 +312,33 @@ WEAK_CRYPTO:
         - id: "CRY-PY-001"
           message: "MD5 or SHA1 found in hashlib."
           pattern: "hashlib\\.(md5|sha1)\\s*\\("
+
+INSECURE_RANDOM:
+  description: "Use of a non-cryptographically secure pseudo-random number generator for sensitive operations."
+  cwe: "CWE-338"
+  severity: "MEDIUM"
+  language_specific:
+    python:
+      regex_patterns:
+        - id: "RND-PY-001"
+          message: "Use secrets module instead of random for security-sensitive applications."
+          pattern: "import\\s+random"
+      ast_sinks: ["random.random", "random.randint", "random.choice"]
+    java:
+      ast_sinks: ["Math.random", "Random.nextInt"]
+
+# --- CONFIGURATION & HEADERS ---
+INSECURE_CONFIG:
+  description: "Insecure configuration settings (CORS, Cookies, etc.)."
+  cwe: "CWE-16"
+  severity: "LOW"
+  general_regex_patterns:
+    - id: "CFG-CORS-001"
+      message: "CORS 'Access-Control-Allow-Origin: *' is too permissive."
+      pattern: "Access-Control-Allow-Origin.*\\*"
+    - id: "CFG-COOKIE-001"
+      message: "Cookie without HttpOnly flag."
+      pattern: "Set-Cookie:.*(?!HttpOnly).*"
+    - id: "CFG-COOKIE-002"
+      message: "Cookie without Secure flag."
+      pattern: "Set-Cookie:.*(?!Secure).*"

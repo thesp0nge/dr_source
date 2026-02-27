@@ -22,6 +22,7 @@ class PythonTaintVisitor(ast.NodeVisitor):
                 self.sinks[s] = None
                 
         self.scopes: List[Dict[str, Dict[str, Any]]] = [{}]
+        self.constants: List[Dict[str, Any]] = [{}] # Track literal values for constant propagation
         self.vulnerabilities: List[Dict[str, Any]] = []
         self.functions: Dict[str, ast.FunctionDef] = {} 
 
@@ -31,12 +32,37 @@ class PythonTaintVisitor(ast.NodeVisitor):
                 return scope[var_name]
         return None
 
+    def get_constant(self, var_name: str) -> Any:
+        for scope in reversed(self.constants):
+            if var_name in scope:
+                return scope[var_name]
+        return None
+
+    def set_constant(self, var_name: str, value: Any):
+        self.constants[-1][var_name] = value
+
     def set_tainted(self, var_name: str, data: Dict[str, Any]):
         self.scopes[-1][var_name] = data
+        # If it's tainted, it's not a safe constant
+        if var_name in self.constants[-1]:
+            del self.constants[-1][var_name]
 
     def clear_taint(self, var_name: str):
         if var_name in self.scopes[-1]:
             del self.scopes[-1][var_name]
+
+    def _resolve_value(self, node: ast.AST) -> Any:
+        """Attempts to resolve a node to a constant value."""
+        if isinstance(node, (ast.Constant, ast.Str, ast.Num)):
+            return getattr(node, 'value', getattr(node, 's', getattr(node, 'n', None)))
+        if isinstance(node, ast.Name):
+            return self.get_constant(node.id)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = self._resolve_value(node.left)
+            right = self._resolve_value(node.right)
+            if isinstance(left, str) and isinstance(right, str):
+                return left + right
+        return None
 
     def _get_full_call_name(self, node: ast.Call) -> str:
         def resolve_attribute(attr_node: ast.Attribute) -> str:
@@ -61,7 +87,9 @@ class PythonTaintVisitor(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef):
         self.functions[node.name] = node
         self.scopes.append({})
+        self.constants.append({})
         self.generic_visit(node)
+        self.constants.pop()
         self.scopes.pop()
 
     def visit_Assign(self, node: ast.Assign):
@@ -70,6 +98,14 @@ class PythonTaintVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _handle_assignment(self, var_name: str, value_node: ast.AST, line: int):
+        # 1. Try Constant Propagation
+        const_val = self._resolve_value(value_node)
+        if const_val is not None:
+            self.set_constant(var_name, const_val)
+            self.clear_taint(var_name)
+            return
+
+        # 2. Taint Analysis
         if isinstance(value_node, ast.Call):
             func_name = self._get_full_call_name(value_node)
             if func_name in self.sanitizers:
@@ -78,6 +114,7 @@ class PythonTaintVisitor(ast.NodeVisitor):
             if func_name in self.sources:
                 self.set_tainted(var_name, {"source": func_name, "trace": [f"Tainted by {func_name} at line {line}"]})
                 return
+        
         value_ids = self._get_ids_from_node(value_node)
         for var_id in value_ids:
             taint_info = self.is_tainted(var_id)
@@ -94,6 +131,11 @@ class PythonTaintVisitor(ast.NodeVisitor):
             vulnerable_args = self.sinks[func_name]
             for idx, arg in enumerate(node.args):
                 if vulnerable_args is not None and idx not in vulnerable_args: continue
+                
+                # Check if it's a safe constant
+                if self._resolve_value(arg) is not None:
+                    continue # Safe literal, skip this arg
+
                 for var in self._get_ids_from_node(arg):
                     taint_info = self.is_tainted(var)
                     if taint_info:

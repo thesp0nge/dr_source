@@ -9,17 +9,19 @@ class PatternMatcher:
     """
     Parses a pattern and matches it against an AST node.
     """
-    METAVARIABLE_PLACEHOLDER = "__DRSOURCE_METAVARIABLE__"
+    METAVARIABLE_PREFIX = "__DRVAR_"
     ELLIPSIS_PLACEHOLDER = "__DRSOURCE_ELLIPSIS__"
 
     def __init__(self, pattern: str):
         self.pattern = pattern
         self.pattern_ast = self._parse_pattern(pattern)
-        self.metavariables = {} # Stores matched metavariable values
+        self.metavariables = {} # Stores matched metavariable name -> AST node
 
-    def _is_metavariable(self, node: ast.AST) -> bool:
-        """Checks if an AST node represents a metavariable."""
-        return isinstance(node, ast.Name) and node.id == self.METAVARIABLE_PLACEHOLDER
+    def _get_metavariable_name(self, node: ast.AST) -> Optional[str]:
+        """Checks if an AST node represents a metavariable and returns its name."""
+        if isinstance(node, ast.Name) and node.id.startswith(self.METAVARIABLE_PREFIX):
+            return node.id[len(self.METAVARIABLE_PREFIX):]
+        return None
 
     def _is_ellipsis(self, node: ast.AST) -> bool:
         """Checks if an AST node represents an ellipsis."""
@@ -30,8 +32,8 @@ class PatternMatcher:
         Parses the pattern string into an AST.
         This handles metavariables like $X and '...'.
         """
-        # Replace metavariables and ellipsis with placeholders that are valid identifiers
-        sanitized_pattern = re.sub(r'\$[A-Z_]+', self.METAVARIABLE_PLACEHOLDER, pattern)
+        # Replace metavariables like $X with unique placeholders like __DRVAR_X__
+        sanitized_pattern = re.sub(r'\$([A-Z_]+)', r'__DRVAR_\1__', pattern)
         sanitized_pattern = sanitized_pattern.replace('...', self.ELLIPSIS_PLACEHOLDER)
         
         try:
@@ -43,6 +45,27 @@ class PatternMatcher:
                 return tree.body[0] if tree.body else None # For statements
             except Exception:
                 return None
+
+    def _nodes_equal(self, node1: ast.AST, node2: ast.AST) -> bool:
+        """Deep structural comparison of two AST nodes."""
+        if type(node1) != type(node2):
+            return False
+        
+        for field, value1 in ast.iter_fields(node1):
+            value2 = getattr(node2, field, None)
+            
+            if isinstance(value1, list):
+                if not isinstance(value2, list) or len(value1) != len(value2):
+                    return False
+                if not all(self._nodes_equal(n1, n2) if isinstance(n1, ast.AST) else n1 == n2 
+                           for n1, n2 in zip(value1, value2)):
+                    return False
+            elif isinstance(value1, ast.AST):
+                if not self._nodes_equal(value1, value2):
+                    return False
+            elif value1 != value2:
+                return False
+        return True
 
     def match(self, node: ast.AST) -> bool:
         """
@@ -64,10 +87,15 @@ class PatternMatcher:
             return False
 
         # Handle metavariables in pattern_node
-        if self._is_metavariable(pattern_node):
-            # Since we replace all metavariables with the same placeholder,
-            # we can't distinguish them here. This is a simplification.
-            return True
+        var_name = self._get_metavariable_name(pattern_node)
+        if var_name:
+            if var_name in self.metavariables:
+                # Unification: must match the previously stored node for this metavariable
+                return self._nodes_equal(self.metavariables[var_name], target_node)
+            else:
+                # Capture: store this node for future unification
+                self.metavariables[var_name] = target_node
+                return True
 
         if type(pattern_node) != type(target_node):
             return False
