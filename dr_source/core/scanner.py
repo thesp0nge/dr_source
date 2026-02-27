@@ -54,7 +54,7 @@ class Scanner:
         Discovers and loads all plugins registered under
         the 'dr_source.plugins' entry point.
         """
-        logger.info("Loading analyzer plugins...")
+        logger.debug("Loading analyzer plugins...")
 
         try:
             entry_points = importlib.metadata.entry_points(group="dr_source.plugins")
@@ -67,7 +67,7 @@ class Scanner:
                 plugin_class = ep.load()
                 plugin_instance: AnalyzerPlugin = plugin_class()
 
-                logger.info(f"  - Loaded plugin: {plugin_instance.name}")
+                logger.debug(f"  - Loaded plugin: {plugin_instance.name}")
 
                 for ext in plugin_instance.get_supported_extensions():
                     if ext not in self.extension_map:
@@ -82,7 +82,7 @@ class Scanner:
         Walks the target directory, delegates files to plugins,
         and saves all results to the database.
         """
-        logger.info(f"Starting scan on: {self.target_path}")
+        logger.debug(f"Starting scan on: {self.target_path}")
 
         self.scan_id = self.db.start_scan()
         start_time = time.time()
@@ -90,7 +90,7 @@ class Scanner:
         all_findings_dataclass: List[Vulnerability] = []
 
         # 1. Collection Phase: Find all files that have at least one plugin
-        logger.info("Collecting files to scan...")
+        logger.debug("Collecting files to scan...")
         files_to_scan = []
 
         if os.path.isfile(self.target_path):

@@ -190,8 +190,6 @@ def main(
                     click.echo(f"  - {vuln}")
         return
 
-    click.echo(f"Starting scan on {target_path}...")
-
     # 1. Instantiate and run the new scanner
     scanner = Scanner(target_path=target_path, timeout=timeout)
     scanner.scan()  # This does everything
@@ -204,10 +202,6 @@ def main(
     num_vulns = len(results_list_of_dicts)
     num_files = scanner.num_files_analyzed
     scan_duration = scanner.scan_duration
-
-    click.echo(
-        f"Scan completed: {num_files} files analyzed, {num_vulns} vulnerabilities found in {scan_duration:.2f} seconds."
-    )
 
     # 3. Reporting logic (now works with 'results_list_of_dicts')
     if export:
@@ -238,18 +232,51 @@ def main(
                 click.echo(f"Results exported to {out_file}")
             else:
                 click.echo(report_content)
-    else:
-        # 4. Standard console output
-        #    (Updated to use new dict keys and --show-trace)
-        for res in results_list_of_dicts:
-            output_line = (
-                f"[{res.get('severity', 'N/A')}][{res.get('vuln_type')}] "
-                f"{res.get('file')}:{res.get('line')} -> {res.get('match')}"
-            )
-            click.echo(output_line)
+    # 4. Standard console output
+    severity_colors = {
+        "CRITICAL": "bright_red",
+        "HIGH": "red",
+        "MEDIUM": "yellow",
+        "LOW": "cyan",
+        "INFO": "green"
+    }
 
-            if show_trace and res.get("trace"):
-                click.echo("    Trace: " + " -> ".join(res["trace"]))
+    # Track counts for summary
+    stats = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+
+    for res in results_list_of_dicts:
+        sev = res.get('severity', 'INFO').upper()
+        stats[sev] = stats.get(sev, 0) + 1
+        
+        sev_style = click.style(f"[{sev}]", fg=severity_colors.get(sev, "white"), bold=True)
+        type_style = click.style(f"[{res.get('vuln_type')}]", fg="bright_white")
+        file_style = click.style(f"{res.get('file')}:{res.get('line')}", fg="blue")
+        
+        click.echo(f"{sev_style}{type_style} {file_style} -> {res.get('match')}")
+
+        if show_trace and res.get('trace'):
+            trace_str = " -> ".join(res["trace"]) if isinstance(res["trace"], list) else res["trace"]
+            click.echo(click.style("    Trace: ", dim=True) + trace_str)
+
+    # 5. Professional Summary Table
+    click.echo("\n" + click.style("="*60, dim=True))
+    click.echo(click.style(" SCAN SUMMARY", bold=True))
+    click.echo(click.style("-"*60, dim=True))
+    
+    summary_data = [
+        ["Files Analyzed", num_files],
+        ["Scan Duration", f"{scan_duration:.2f}s"],
+        ["Total Vulnerabilities", num_vulns]
+    ]
+    
+    # Add severity counts to summary if they exist
+    for s_level, count in stats.items():
+        if count > 0:
+            label = click.style(s_level, fg=severity_colors.get(s_level, "white"))
+            summary_data.append([f"{label} Issues", count])
+
+    click.echo(tabulate(summary_data, tablefmt="plain"))
+    click.echo(click.style("="*60, dim=True) + "\n")
 
 
 if __name__ == "__main__":

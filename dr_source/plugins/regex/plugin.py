@@ -67,7 +67,7 @@ class RegexAnalyzer(AnalyzerPlugin):
                         lang_patterns, vuln_type, top_severity, lang_name
                     )
 
-        logger.info(
+        logger.debug(
             f"RegexAnalyzer loaded and compiled {len(self.general_rules)} general rules "
             f"and {sum(len(v) for v in self.lang_rules.values())} language-specific rules."
         )

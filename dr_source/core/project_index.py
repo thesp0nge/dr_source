@@ -20,7 +20,7 @@ class ProjectIndex:
         self.functions: Dict[str, FunctionDefinition] = {}
 
     def register_function(self, name: str, file_path: str, node: Any, language: str):
-        logger.info(f"REGISTERING GLOBAL FUNCTION: {name} ({language}) in {file_path}")
+        logger.debug(f"REGISTERING GLOBAL FUNCTION: {name} ({language}) in {file_path}")
         if name in self.functions:
             logger.debug(f"Function {name} is already registered. Overwriting with definition from {file_path}")
         self.functions[name] = FunctionDefinition(name, file_path, node, language)

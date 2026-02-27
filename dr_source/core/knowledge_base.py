@@ -90,7 +90,7 @@ class KnowledgeBaseLoader:
                     # Let's use the simplest possible logic:
                     self.rules = deep_merge(self.rules, new_rules)
                     
-                    logger.info(f"Successfully merged rules from: {path}")
+                    logger.debug(f"Successfully merged rules from: {path}")
 
             except Exception as e:
                 logger.error(f"CRITICAL: Error loading/merging knowledge base from {path}: {e}")
