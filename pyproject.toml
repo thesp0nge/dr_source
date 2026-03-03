@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # It replaces most of setup.py
 [project]
 name = "dr_source"
-version = "0.111.0"
+version = "0.112.0"
 description = "A plugin-driven, multi-language SAST."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -29,6 +29,8 @@ dependencies = [
     "tree-sitter", 
     "tree-sitter-java",
     "tree-sitter-javascript",
+    "tree-sitter-php",
+    "tree-sitter-ruby",
     "tqdm"
 ]
 
@@ -45,6 +47,8 @@ python_ast = "dr_source.plugins.python.plugin:PythonAstAnalyzer"
 dependency = "dr_source.plugins.dependency.plugin:DependencyAnalyzer"
 javascript_ast = "dr_source.plugins.javascript.plugin:JavaScriptAstAnalyzer"
 pattern_matcher = "dr_source.plugins.pattern.plugin:PatternAnalyzer"
+php_ast = "dr_source.plugins.php.plugin:PHPAstAnalyzer"
+ruby_ast = "dr_source.plugins.ruby.plugin:RubyAstAnalyzer"
 
 # This section configures setuptools (replaces find_packages())
 [tool.setuptools.packages.find]

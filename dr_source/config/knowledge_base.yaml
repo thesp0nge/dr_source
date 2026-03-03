@@ -33,6 +33,9 @@ SQL_INJECTION:
         - id: "JAVA-SQLI-001"
           message: "SQL query is directly concatenated with user input (request.getParameter)."
           pattern: "(?i)(SELECT|INSERT|UPDATE|DELETE)\\s+.*\\s+FROM\\s+.*\\+.*request\\.getParameter"
+        - id: "JAVA-SQLI-002"
+          message: "Insecure 'Statement.execute' call with string concatenation."
+          pattern: "(?i)^\\s*statement\\.execute(Query|Update)?\\s*\\(.*\\+.*\\)"
       ast_sources: ["request.getParameter", "request.getHeader", "request.getCookie", "@RequestParam", "@PathVariable", "@RequestBody"]
       ast_sinks:
         - name: "executeQuery"
@@ -72,6 +75,30 @@ SQL_INJECTION:
         - name: "pg.query"
           args: [0]
       ast_sanitizers: ["escape", "validator.escape", "mysql.escape"]
+    php:
+      ast_sources: ["$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "readline"]
+      ast_sinks:
+        - name: "mysqli_query"
+          args: [1]
+        - name: "mysql_query"
+          args: [0]
+        - name: "pg_query"
+          args: [1]
+        - name: "PDO::query"
+          args: [0]
+        - name: "PDO::exec"
+          args: [0]
+      ast_sanitizers: ["mysqli_real_escape_string", "pg_escape_string", "addslashes", "htmlspecialchars"]
+    ruby:
+      ast_sources: ["params", "cookies", "request.env", "gets"]
+      ast_sinks:
+        - name: "find_by_sql"
+          args: [0]
+        - name: "execute"
+          args: [0]
+        - name: "where"
+          args: [0]
+      ast_sanitizers: ["ActiveRecord::Base.sanitize_sql", "html_escape"]
 
 NOSQL_INJECTION:
   description: "Unsanitized user input in NoSQL queries (e.g., MongoDB)."
@@ -128,6 +155,50 @@ COMMAND_INJECTION:
           args: [0]
         - name: "eval"
           args: [0]
+    php:
+      ast_sources: ["$_GET", "$_POST", "$_REQUEST"]
+      ast_sinks:
+        - name: "exec"
+          args: [0]
+        - name: "system"
+          args: [0]
+        - name: "passthru"
+          args: [0]
+        - name: "shell_exec"
+          args: [0]
+        - name: "popen"
+          args: [0]
+        - name: "eval"
+          args: [0]
+    ruby:
+      ast_sources: ["params", "cookies"]
+      ast_sinks: 
+        - name: "eval"
+          args: [0]
+        - name: "system"
+          args: [0]
+        - name: "exec"
+          args: [0]
+        - name: "`"
+          args: [0]
+        - name: "Open3.capture3"
+          args: [0]
+
+SELF_COMPARISON:
+  description: "Comparing a variable to itself is usually a bug."
+  cwe: "CWE-480"
+  severity: "LOW"
+  language_specific:
+    python:
+      patterns:
+        - pattern: "$X == $X"
+        - pattern-not: "1 == 1"
+    php:
+      patterns:
+        - pattern: "$X == $X"
+    ruby:
+      patterns:
+        - pattern: "$X == $X"
 
 LDAP_INJECTION:
   description: "User input used to construct LDAP queries without validation."
@@ -172,6 +243,12 @@ SSTI:
     javascript:
       ast_sources: ["req.query", "req.body"]
       ast_sinks: ["ejs.render", "pug.compile", "handlebars.compile", "mustache.render"]
+    php:
+      ast_sources: ["$_GET", "$_POST", "$_REQUEST"]
+      ast_sinks: ["Twig\\Environment::render", "Smarty::fetch"]
+    ruby:
+      ast_sources: ["params"]
+      ast_sinks: ["ERB.new", "Liquid::Template.parse"]
 
 # --- DATA EXPOSURE & SECRETS ---
 HARDCODED_SECRET:
@@ -200,6 +277,9 @@ HARDCODED_SECRET:
     - id: "SEC-PRIVATE-KEY"
       message: "Private Key found."
       pattern: "-----BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY-----"
+    - id: "SEC-GENERIC-001"
+      message: "Generic high-entropy password or secret."
+      pattern: "(?i)(password|passwd|pwd|secret|auth|token|api_key|apikey)\\s*[=:]\\s*['\"](.{8,})['\"]"
 
 # --- WEB VULNERABILITIES ---
 XSS:
@@ -215,6 +295,14 @@ XSS:
       ast_sources: ["req.query", "req.body", "document.location", "window.name"]
       ast_sinks: ["innerHTML", "outerHTML", "document.write", "res.send", "res.render", "dangerouslySetInnerHTML"]
       ast_sanitizers: ["dompurify.sanitize", "escapeHtml"]
+    php:
+      ast_sources: ["$_GET", "$_POST", "$_REQUEST"]
+      ast_sinks: ["echo", "print", "printf", "vprintf"]
+      ast_sanitizers: ["htmlspecialchars", "htmlentities", "strip_tags"]
+    ruby:
+      ast_sources: ["params", "cookies"]
+      ast_sinks: ["render", "send_data"]
+      ast_sanitizers: ["html_escape", "sanitize"]
 
 SSRF:
   description: "Attacker-controlled destination URL for server-side requests."
@@ -230,6 +318,12 @@ SSRF:
     javascript:
       ast_sources: ["req.query"]
       ast_sinks: ["axios.get", "fetch", "http.get", "request.get"]
+    php:
+      ast_sources: ["$_GET", "$_POST"]
+      ast_sinks: ["file_get_contents", "curl_exec", "fopen"]
+    ruby:
+      ast_sources: ["params"]
+      ast_sinks: ["Net::HTTP.get", "open", "HTTParty.get", "Faraday.get"]
 
 OPEN_REDIRECT:
   description: "Unvalidated user input used in a redirect destination."
@@ -245,6 +339,12 @@ OPEN_REDIRECT:
     java:
       ast_sources: ["request.getParameter"]
       ast_sinks: ["sendRedirect", "redirect"]
+    php:
+      ast_sources: ["$_GET", "$_POST"]
+      ast_sinks: ["header"]
+    ruby:
+      ast_sources: ["params"]
+      ast_sinks: ["redirect_to"]
 
 PROTOTYPE_POLLUTION:
   description: "User input used to pollute the prototype of a JavaScript object."

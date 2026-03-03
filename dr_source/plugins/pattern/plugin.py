@@ -8,13 +8,15 @@ from .matcher import PatternMatcher
 from tree_sitter import Parser, Language
 import tree_sitter_javascript
 import tree_sitter_java
+import tree_sitter_php
+import tree_sitter_ruby
 
 logger = logging.getLogger(__name__)
 
 class PatternAnalyzer(AnalyzerPlugin):
     """
     A Semgrep-like pattern matching plugin for DRSource.
-    Supports Python (native AST) and Java/JS (Tree-sitter).
+    Supports Python (native AST) and Java/JS/PHP/Ruby (Tree-sitter).
     """
 
     def __init__(self):
@@ -29,7 +31,7 @@ class PatternAnalyzer(AnalyzerPlugin):
             js_parser.language = js_lang
             self.parsers["javascript"] = js_parser
         except Exception as e:
-            logger.error(f"Failed to load JS parser: {e}")
+            logger.error(f"Failed to load javascript parser: {e}")
 
         try:
             java_lang = Language(tree_sitter_java.language())
@@ -37,14 +39,30 @@ class PatternAnalyzer(AnalyzerPlugin):
             java_parser.language = java_lang
             self.parsers["java"] = java_parser
         except Exception as e:
-            logger.error(f"Failed to load Java parser: {e}")
+            logger.error(f"Failed to load java parser: {e}")
+
+        try:
+            php_lang = Language(tree_sitter_php.language_php())
+            php_parser = Parser()
+            php_parser.language = php_lang
+            self.parsers["php"] = php_parser
+        except Exception as e:
+            logger.error(f"Failed to load php parser: {e}")
+
+        try:
+            ruby_lang = Language(tree_sitter_ruby.language())
+            ruby_parser = Parser()
+            ruby_parser.language = ruby_lang
+            self.parsers["ruby"] = ruby_parser
+        except Exception as e:
+            logger.error(f"Failed to load ruby parser: {e}")
 
     @property
     def name(self) -> str:
         return "Pattern Matcher"
 
     def get_supported_extensions(self) -> List[str]:
-        return [".py", ".js", ".java"]
+        return [".py", ".js", ".java", ".php", ".rb"]
 
     def _walk_ts_tree(self, node):
         yield node
@@ -54,7 +72,15 @@ class PatternAnalyzer(AnalyzerPlugin):
     def analyze(self, file_path: str) -> List[Vulnerability]:
         findings = []
         ext = "." + file_path.split(".")[-1]
-        lang = "python" if ext == ".py" else ("javascript" if ext == ".js" else "java")
+        lang_map = {
+            ".py": "python",
+            ".js": "javascript",
+            ".java": "java",
+            ".php": "php",
+            ".rb": "ruby"
+        }
+        lang = lang_map.get(ext, "unknown")
+        if lang == "unknown": return []
         
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -67,7 +93,12 @@ class PatternAnalyzer(AnalyzerPlugin):
                 nodes = ast.walk(target_ast)
             elif lang in self.parsers:
                 parser = self.parsers[lang]
-                tree = parser.parse(bytes(code, "utf-8"))
+                # PHP fix: ensure code starts with <?php for tree-sitter
+                effective_code = code
+                if lang == "php" and not code.strip().startswith("<?"):
+                    effective_code = "<?php " + code
+                
+                tree = parser.parse(bytes(effective_code, "utf-8"))
                 nodes = self._walk_ts_tree(tree.root_node)
             else:
                 return []
@@ -76,6 +107,8 @@ class PatternAnalyzer(AnalyzerPlugin):
                 logic = self.kb.get_patterns_logic(vuln_type, lang)
                 if not logic:
                     continue
+                
+                logger.debug(f"Evaluating {vuln_type} pattern logic for {lang}")
 
                 rules = self.kb.get_detector_rules(vuln_type)
                 severity = rules.get("severity", "MEDIUM").upper()
