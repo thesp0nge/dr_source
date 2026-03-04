@@ -59,6 +59,10 @@ class TestPythonAstAnalyzer(unittest.TestCase):
         """
         findings = self.analyzer.analyze(TEST_FILE_COMPLEX)
         self.assertIsInstance(findings, list)
+        
+        print("\nDEBUG FINDINGS:")
+        for f in findings:
+            print(f"  {f.vulnerability_type} at {f.line_number}: {f.message}")
 
         sql_vulns = [
             f for f in findings if f.vulnerability_type == "SQL_INJECTION (AST Taint)"

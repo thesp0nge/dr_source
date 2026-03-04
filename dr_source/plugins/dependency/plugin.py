@@ -38,13 +38,23 @@ class DependencyAnalyzer(AnalyzerPlugin):
 
     def _scan_pip_requirements(self, file_path: str) -> List[Vulnerability]:
         findings = []
-        if not shutil.which("pip-audit"):
-            logger.warning("pip-audit not found. Skipping python dependency scan.")
-            return []
+        
+        # Determine the best way to call pip-audit
+        pip_audit_cmd = None
+        if shutil.which("pip-audit"):
+            pip_audit_cmd = ["pip-audit"]
+        else:
+            # Fallback to python -m pip_audit
+            try:
+                # Check if the module is available
+                subprocess.run(["python3", "-m", "pip_audit", "--version"], capture_output=True, check=True)
+                pip_audit_cmd = ["python3", "-m", "pip_audit"]
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                logger.warning("pip-audit not found (tried 'pip-audit' and 'python3 -m pip_audit'). Skipping python dependency scan.")
+                return []
 
         try:
-            cmd = [
-                "pip-audit",
+            cmd = pip_audit_cmd + [
                 "-r",
                 file_path,
                 "-f",

@@ -43,10 +43,24 @@ class TestDependencyAnalyzer(unittest.TestCase):
 
     @patch("subprocess.run")
     def test_finds_vulnerable_python_package(self, mock_run):
-        # ... (Previous Python test logic) ...
-        mock_process = MagicMock()
-        mock_process.stdout = MOCK_PIP_AUDIT_JSON
-        mock_run.return_value = mock_process
+        """
+        Tests that requirements.txt scanning works correctly when pip-audit finds vulns.
+        """
+        # We need to mock TWO calls to subprocess.run now:
+        # 1. The version check (if pip-audit executable is not in PATH)
+        # 2. The actual scan
+        
+        # Mock for version check
+        mock_v_check = MagicMock()
+        mock_v_check.returncode = 0
+        
+        # Mock for actual scan
+        mock_scan = MagicMock()
+        mock_scan.stdout = MOCK_PIP_AUDIT_JSON
+        mock_scan.returncode = 0
+        
+        # Assign side effects to handle sequential calls
+        mock_run.side_effect = [mock_v_check, mock_scan]
 
         findings = self.analyzer.analyze(TEST_FILE_REQS)
 

@@ -13,6 +13,7 @@ DRSource doesn't just look for "bad strings"; it understands the data flow of yo
   - `pattern-not`: Logical NOT to exclude specific cases (e.g., test code or known safe patterns).
   - **Metavariable Unification**: Real `$X` metavariable matching that ensures multiple occurrences of the same variable name refer to the same AST node.
 - **Industrial-Grade Precision**:
+  - **Field-Sensitive Taint Tracking**: Differentiates between fields in an object (e.g., flagging `user.name` but ignoring `user.id`), reducing noise in ORM/DTO-heavy modern code.
   - **Constant Propagation**: Automatically identifies and tracks hardcoded values and safe string concatenations, drastically reducing false positives by ignoring safe "sinks".
   - **Scope Management**: Understands local and global scopes, preventing variable name collisions between functions.
   - **AST Sanitizers**: Recognizes security controls (e.g., `escape()`, `prepareStatement`, `int()`).

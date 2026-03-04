@@ -116,7 +116,7 @@ class PatternAnalyzer(AnalyzerPlugin):
 
                 for node in nodes:
                     # Avoid double reporting: skip expression_statement as it wraps call_expression
-                    if node.type == "expression_statement":
+                    if lang != "python" and hasattr(node, "type") and node.type == "expression_statement":
                         continue
                         
                     if self._evaluate_logic(node, logic, lang, code):

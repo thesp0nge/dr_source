@@ -58,7 +58,13 @@ SQL_INJECTION:
           args: [0]
         - name: "db.engine.execute"
           args: [0]
+        - name: "conn.execute"
+          args: [0]
+        - name: "db.execute"
+          args: [0]
         - name: "RawSQL"
+          args: [0]
+        - name: "objects.raw"
           args: [0]
       ast_sanitizers: ["int", "float", "bool", "django.utils.html.escape"]
     javascript:
@@ -291,6 +297,8 @@ XSS:
       ast_sources: ["request.getParameter"]
       ast_sinks: ["print", "println", "write", "sendError", "ModelAndView"]
       ast_sanitizers: ["StringEscapeUtils.escapeHtml4", "HtmlUtils.htmlEscape"]
+    python:
+      ast_sinks: ["HttpResponse", "render", "mark_safe", "format_html"]
     javascript:
       ast_sources: ["req.query", "req.body", "document.location", "window.name"]
       ast_sinks: ["innerHTML", "outerHTML", "document.write", "res.send", "res.render", "dangerouslySetInnerHTML"]

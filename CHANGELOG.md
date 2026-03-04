@@ -6,42 +6,109 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.150.0] - 2026-03-04
+
+### Added
+
+- **Field-Sensitive Taint Analysis (All Core Languages):**
+  - The taint engine now tracks data-flow at the property/field level (e.g.,
+    `user.name` vs `user.id`) for **Python, Java, JavaScript, PHP, and Ruby**.
+  - If a specific field is tainted, only sinks using that exact field are
+    flagged, drastically reducing false positives.
+  - Supports recursive path resolution: if an entire object is tainted, all its
+    sub-fields are considered tainted.
+- **Python Framework Support (FastAPI & Django):**
+  - Introduced `PythonFrameworkMapper` to handle framework-specific decorators
+    and parameter injection.
+  - **FastAPI:** Automatic detection of route parameters as sources in functions
+    decorated with `@app.get`, `@app.post`, etc., including `async def` support.
+  - **Django:** Heuristic detection of the `request` object as a primary data
+    source in views, with full attribute (`request.GET`) and subscript
+    (`request.GET['id']`) propagation.
+- **Java Multi-Framework Support:**
+  - Introduced `JavaFrameworkMapper` architecture to handle framework-specific
+    entry points and sinks cleanly.
+  - **Spring Boot:** Support for `@RequestParam`, `@PathVariable`,
+    `@RequestBody`, and `JdbcTemplate` sinks.
+  - **Jakarta EE / Servlets:** Automatic detection of `request.getParameter()`,
+    `getHeader()`, etc., as sources.
+  - **JAX-RS:** Support for REST annotations like `@QueryParam` and
+    `@PathParam`.
+  - **Hibernate / JPA:** Support for tracing taint into
+    `EntityManager.createQuery()` and `Session.createNativeQuery()`.
+- **Enhanced Taint Engines:**
+  - **Python:** Full support for f-string (`JoinedStr`) propagation and call
+    chaining (e.g., `db.cursor().execute()`).
+  - **Java:** Improved inter-procedural analysis to handle local method calls
+    even when defined after their usage.
+  - **Multi-language:** Robust parameter mapping during call simulation and
+    suffix-based sink matching.
+
+### Fixed
+
+- **JavaScript Sink Detection:** Fixed a bug where property assignments (e.g.,
+  `element.innerHTML = ...`) were not being tracked by the taint engine.
+- **Ruby Method Call Detection:** Improved robustness in extracting method names
+  and handling string interpolations.
+- **Dependency Analysis:** Fixed `pip-audit` detection in virtual environments.
+
 ## [0.112.0] - 2026-02-27
 
 ### Added
 
 - **Full PHP & Ruby Support:**
-  - Implemented AST-based Taint Analysis plugins for PHP and Ruby using Tree-sitter.
-  - Added specialized visitors to track data-flow from superglobals (`$_GET`, `$_POST`), `params`, and `cookies`.
-  - Added support for Ruby string interpolation (`#{var}`) and PHP array access in taint propagation.
+  - Implemented AST-based Taint Analysis plugins for PHP and Ruby using
+    Tree-sitter.
+  - Added specialized visitors to track data-flow from superglobals (`$_GET`,
+    `$_POST`), `params`, and `cookies`.
+  - Added support for Ruby string interpolation (`#{var}`) and PHP array access
+    in taint propagation.
 - **Semgrep-Compatible Boolean Engine:**
   - Implemented a recursive logical evaluator for pattern matching.
-  - Support for `patterns` (AND), `pattern-either` (OR), and `pattern-not` (NOT) operators in the Knowledge Base.
-  - Enabled sophisticated rule definitions that combine multiple conditions and exclusions.
+  - Support for `patterns` (AND), `pattern-either` (OR), and `pattern-not` (NOT)
+    operators in the Knowledge Base.
+  - Enabled sophisticated rule definitions that combine multiple conditions and
+    exclusions.
 - **Advanced Metavariable Unification:**
-  - Upgraded the pattern matching engine to support real metavariable unification (`$X`, `$Y`).
-  - The engine now ensures that multiple occurrences of the same metavariable within a pattern must match identical AST nodes.
+  - Upgraded the pattern matching engine to support real metavariable
+    unification (`$X`, `$Y`).
+  - The engine now ensures that multiple occurrences of the same metavariable
+    within a pattern must match identical AST nodes.
 - **Constant Propagation & Literal Tracking:**
-  - Implemented a data-flow constant propagation engine for Python, Java, JavaScript, PHP, and Ruby.
-  - Automatically identifies and ignores safe hardcoded literals and their simple concatenations in security sinks, drastically reducing false positives.
+  - Implemented a data-flow constant propagation engine for Python, Java,
+    JavaScript, PHP, and Ruby.
+  - Automatically identifies and ignores safe hardcoded literals and their
+    simple concatenations in security sinks, drastically reducing false
+    positives.
 - **Professional CLI UX:**
-  - **Color-Coded Output:** Vulnerabilities are now displayed with colors based on severity (Critical, High, Medium, Low).
-  - **Detailed Summary Table:** Added an elegant summary table at the end of every scan showing files analyzed, duration, and issue counts.
-  - **Log Noise Reduction:** Internal informational messages moved to `DEBUG` level for a cleaner "product-like" experience.
+  - **Color-Coded Output:** Vulnerabilities are now displayed with colors based
+    on severity (Critical, High, Medium, Low).
+  - **Detailed Summary Table:** Added an elegant summary table at the end of
+    every scan showing files analyzed, duration, and issue counts.
+  - **Log Noise Reduction:** Internal informational messages moved to `DEBUG`
+    level for a cleaner "product-like" experience.
 - **Knowledge Base Expansion:**
-  - Added dozens of new rules for modern vulnerabilities: NoSQL Injection (MongoDB), SSTI (Jinja2, EJS, Twig, ERB), XXE, Open Redirect, and Prototype Pollution.
-  - Improved coverage for framework-specific APIs (Spring Boot, Django, Express, Rails).
+  - Added dozens of new rules for modern vulnerabilities: NoSQL Injection
+    (MongoDB), SSTI (Jinja2, EJS, Twig, ERB), XXE, Open Redirect, and Prototype
+    Pollution.
+  - Improved coverage for framework-specific APIs (Spring Boot, Django, Express,
+    Rails).
 
 ### Fixed
 
-- **JavaScript Sink Detection:** Fixed a bug where property assignments (e.g., `element.innerHTML = ...`) were not being tracked by the taint engine.
-- **Ruby Method Call Detection:** Fixed an issue where method calls with receivers (e.g., `User.find_by_sql`) were sometimes missed by the visitor.
-- **PHP Parsing:** Improved parsing of PHP code fragments by automatically handling missing open tags (`<?php`).
-- **Pattern Matcher Robustness:** Fixed double-reporting of findings and implemented a smart textual fallback for complex AST structures.
+- **JavaScript Sink Detection:** Fixed a bug where property assignments (e.g.,
+  `element.innerHTML = ...`) were not being tracked by the taint engine.
+- **Ruby Method Call Detection:** Fixed an issue where method calls with
+  receivers (e.g., `User.find_by_sql`) were sometimes missed by the visitor.
+- **PHP Parsing:** Improved parsing of PHP code fragments by automatically
+  handling missing open tags (`<?php`).
+- **Pattern Matcher Robustness:** Fixed double-reporting of findings and
+  implemented a smart textual fallback for complex AST structures.
 
 ## [0.111.0] - 2026-02-26
 
 ### Added
+
 - Initial support for Tree-sitter in core engines.
 - Base Pattern Matcher plugin for Python.
 
@@ -51,29 +118,41 @@ and this project adheres to
 
 - **Keyboard Interrupt Skip Shortcut:**
   - Implemented a "Skip File" shortcut using `Ctrl+C`.
-  - Pressing `Ctrl+C` once during the indexing or analysis of a file will now interrupt only that specific file and skip to the next one, rather than aborting the entire scan.
-  - Added a "Double Ctrl+C" protection: if `Ctrl+C` is pressed twice within 2 seconds, the scan will be aborted completely. This provides a user-friendly way to skip slow/stuck files while maintaining the ability to exit.
+  - Pressing `Ctrl+C` once during the indexing or analysis of a file will now
+    interrupt only that specific file and skip to the next one, rather than
+    aborting the entire scan.
+  - Added a "Double Ctrl+C" protection: if `Ctrl+C` is pressed twice within 2
+    seconds, the scan will be aborted completely. This provides a user-friendly
+    way to skip slow/stuck files while maintaining the ability to exit.
 
 ### Fixed
 
-- **Scanner Lifecycle Test:** Updated `tests/test_scanner.py` to correctly reflect the current number of test files (5 instead of 3), fixing an `AssertionError` in the CI/test suite.
+- **Scanner Lifecycle Test:** Updated `tests/test_scanner.py` to correctly
+  reflect the current number of test files (5 instead of 3), fixing an
+  `AssertionError` in the CI/test suite.
 
 ## [0.103.0] - 2026-02-26
 
 ### Added
 
 - **Per-File Timeout Mechanism:**
-  - Implemented a new timeout system that monitors the indexing and analysis of individual files.
-  - If a file takes too long to process (e.g., due to complex AST structures or recursive flows), the scanner will log an error, skip the problematic file, and continue with the rest of the codebase.
-  - This ensures that a single "hanging" file does not block the entire scanning process.
+  - Implemented a new timeout system that monitors the indexing and analysis of
+    individual files.
+  - If a file takes too long to process (e.g., due to complex AST structures or
+    recursive flows), the scanner will log an error, skip the problematic file,
+    and continue with the rest of the codebase.
+  - This ensures that a single "hanging" file does not block the entire scanning
+    process.
 - **CLI --timeout Option:**
   - Added a new `--timeout <seconds>` option to the main CLI.
-  - Users can specify the maximum duration allowed for each file's indexing and analysis phases separately.
+  - Users can specify the maximum duration allowed for each file's indexing and
+    analysis phases separately.
   - Default is `0` (no timeout).
 
 ### Changed
 
-- **Scanner Robustness:** Updated the core scanner to gracefully handle `TimeoutException` and `KeyboardInterrupt` during plugin execution.
+- **Scanner Robustness:** Updated the core scanner to gracefully handle
+  `TimeoutException` and `KeyboardInterrupt` during plugin execution.
 
 ## [0.102.0] - 2026-02-25
 

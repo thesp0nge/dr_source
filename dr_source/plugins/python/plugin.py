@@ -53,8 +53,9 @@ class PythonAstAnalyzer(AnalyzerPlugin):
                 sinks = self.kb.get_lang_ast_sinks(vuln_type, "python")
                 sanitizers = self.kb.get_lang_ast_sanitizers(vuln_type, "python")
 
-                if not sources or not sinks:
-                    continue  # This rule doesn't apply to Python AST
+                # If no sinks are defined, this rule definitely doesn't apply to AST
+                if not sinks:
+                    continue
 
                 rules = self.kb.get_detector_rules(vuln_type)
                 severity = rules.get("severity", "MEDIUM").upper()
