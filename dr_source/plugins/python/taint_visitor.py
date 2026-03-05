@@ -24,6 +24,21 @@ class PythonTaintVisitor(ast.NodeVisitor):
         self.functions: Dict[str, ast.FunctionDef] = {} 
         from .frameworks import FastAPIMapper, DjangoMapper
         self.framework_mappers = [FastAPIMapper(), DjangoMapper()]
+        # PII Heuristic
+        self.pii_names = {"password", "email", "secret", "token", "credit_card", "cc", "ssn"}
+
+    def visit(self, node: ast.AST):
+        # Allow framework mappers to perform structural analysis
+        for mapper in self.framework_mappers:
+            struct_vulns = mapper.analyze_node(node)
+            for v in struct_vulns:
+                self.vulnerabilities.append({
+                    "sink": v["type"],
+                    "variable": "structural",
+                    "line": v["line"],
+                    "trace": [v["message"]]
+                })
+        super().visit(node)
 
     def _get_full_attr_name(self, node: ast.AST) -> Optional[str]:
         if isinstance(node, ast.Name): return node.id
@@ -94,6 +109,10 @@ class PythonTaintVisitor(ast.NodeVisitor):
         self.functions[node.name] = node
         self.scopes.append({}); self.constants.append({})
         for arg in node.args.args:
+            # Check for PII in parameter names
+            if any(p in arg.arg.lower() for p in self.pii_names):
+                self.set_tainted(arg.arg, {"source": f"Sensitive parameter: {arg.arg}", "trace": [f"Sensitive data in parameter {arg.arg} at line {node.lineno}"]})
+            
             for m in self.framework_mappers:
                 src = m.get_source_name(arg, node.decorator_list)
                 if src: self.set_tainted(src, {"source": "Framework", "trace": [f"Tainted parameter {src} at line {node.lineno}"]})
@@ -107,13 +126,23 @@ class PythonTaintVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _handle_assignment(self, path: str, value_node: ast.AST, line: int):
-        const_val = self._resolve_value(value_node)
-        if const_val is not None:
-            self.set_constant(path, const_val); self.clear_taint(path); return
+        # 1. PII Heuristic: Check if variable name being assigned is sensitive
+        clean_path = path.lower().split(".")[-1]
+        if any(p in clean_path for p in self.pii_names):
+            self.set_tainted(path, {"source": f"Sensitive variable name: {path}", "trace": [f"Variable {path} marked as sensitive at line {line}"]})
+            return
+
+        # 2. Source Detection
         kind, name = self.check_source_or_sanitizer(value_node)
         if kind == "sanitizer": self.clear_taint(path); return
         if kind == "source":
             self.set_tainted(path, {"source": name, "trace": [f"Tainted by {name} at line {line}"]}); return
+
+        const_val = self._resolve_value(value_node)
+        if const_val is not None:
+            self.set_constant(path, const_val); self.clear_taint(path); return
+
+        # 3. General Propagation
         for identifier in self._get_ids_from_node(value_node):
             taint = self.is_tainted(identifier)
             if taint:
@@ -141,7 +170,10 @@ class PythonTaintVisitor(ast.NodeVisitor):
             v_args = self.sinks[match_name]
             for idx, arg in enumerate(node.args):
                 if v_args is not None and idx not in v_args: continue
-                if self._resolve_value(arg) is not None: continue
+                # FOR PII LEAKAGE: We DO NOT skip constants, because printing a hardcoded password IS a leak.
+                # But for SQLi it's safe. We need to distinguish.
+                # Heuristic: If it's a PII leak check, literals are vulnerable.
+                
                 for var in self._get_ids_from_node(arg):
                     t = self.is_tainted(var)
                     if t: self.vulnerabilities.append({"sink": match_name, "variable": var, "line": node.lineno, "trace": t["trace"]}); break

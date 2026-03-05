@@ -318,20 +318,47 @@ SSRF:
   severity: "HIGH"
   language_specific:
     java:
-      ast_sources: ["request.getParameter"]
-      ast_sinks: ["URL", "HttpGet", "HttpPost", "OkHttpClient.newCall"]
+      ast_sources: ["request.getParameter", "request.getHeader"]
+      ast_sinks: ["URL", "HttpGet", "HttpPost", "OkHttpClient.newCall", "RestTemplate.getForObject", "RestTemplate.postForEntity"]
     python:
-      ast_sources: ["request.args.get"]
-      ast_sinks: ["requests.get", "requests.post", "urllib.request.urlopen", "httpx.get", "aiohttp.ClientSession.get"]
+      ast_sources: ["request.args.get", "request.form.get", "request.json"]
+      ast_sinks: ["requests.get", "requests.post", "urllib.request.urlopen", "httpx.get", "httpx.post", "aiohttp.ClientSession.get", "aiohttp.ClientSession.post"]
     javascript:
-      ast_sources: ["req.query"]
-      ast_sinks: ["axios.get", "fetch", "http.get", "request.get"]
+      ast_sources: ["req.query", "req.body"]
+      ast_sinks: ["axios.get", "axios.post", "fetch", "node-fetch", "http.get", "https.get", "request.get", "got"]
     php:
-      ast_sources: ["$_GET", "$_POST"]
+      ast_sources: ["$_GET", "$_POST", "$_REQUEST"]
       ast_sinks: ["file_get_contents", "curl_exec", "fopen"]
     ruby:
-      ast_sources: ["params"]
+      ast_sources: ["params", "cookies"]
       ast_sinks: ["Net::HTTP.get", "open", "HTTParty.get", "Faraday.get"]
+
+INSECURE_JWT:
+  description: "Insecure JWT implementation (e.g., none algorithm, missing signature verification)."
+  cwe: "CWE-347"
+  severity: "CRITICAL"
+  language_specific:
+    python:
+      regex_patterns:
+        - id: "JWT-PY-001"
+          message: "JWT signature verification is disabled."
+          pattern: "jwt\\.decode\\(.*verify\\s*=\\s*False.*\\)"
+        - id: "JWT-PY-002"
+          message: "JWT 'none' algorithm is permitted."
+          pattern: "algorithms\\s*=\\s*\\[.*['\"]none['\"].*\\]"
+      ast_sinks: ["jwt.decode"]
+    javascript:
+      regex_patterns:
+        - id: "JWT-JS-001"
+          message: "JWT signature verification might be disabled or using none algorithm."
+          pattern: "jwt\\.verify\\(.*\\{.*algorithms\\s*:\\s*\\[.*['\"]none['\"].*\\].*\\)"
+      ast_sinks: ["jwt.verify", "jwt.decode"]
+    java:
+      regex_patterns:
+        - id: "JWT-JV-001"
+          message: "Insecure JWT parser configuration."
+          pattern: "Jwts\\.parser\\(\\)\\.setSigningKey\\(['\"]['\"]\\)"
+      ast_sinks: ["Jwts.parser"]
 
 OPEN_REDIRECT:
   description: "Unvalidated user input used in a redirect destination."
@@ -435,6 +462,184 @@ INSECURE_RANDOM:
     java:
       ast_sinks: ["Math.random", "Random.nextInt"]
 
+WEAK_CRYPTO:
+  description: "Use of weak cryptographic algorithms (MD5, SHA1, DES, AES-ECB) can compromise data integrity and confidentiality."
+  cwe: "CWE-327"
+  severity: "HIGH"
+  language_specific:
+    python:
+      regex_patterns:
+        - id: "CRY-PY-001"
+          message: "MD5 is insecure for security-sensitive applications."
+          pattern: "hashlib\\.md5\\("
+        - id: "CRY-PY-002"
+          message: "SHA1 is insecure for security-sensitive applications."
+          pattern: "hashlib\\.sha1\\("
+        - id: "CRY-PY-003"
+          message: "AES in ECB mode is insecure."
+          pattern: "AES\\.MODE_ECB"
+      ast_sinks: ["hashlib.md5", "hashlib.sha1", "Crypto.Cipher.DES.new", "AES.new"]
+    java:
+      regex_patterns:
+        - id: "CRY-JV-001"
+          message: "Insecure cryptographic algorithm detected."
+          pattern: "MessageDigest\\.getInstance\\(\"(MD5|SHA-1)\"\\)"
+        - id: "CRY-JV-002"
+          message: "AES in ECB mode is insecure."
+          pattern: "Cipher\\.getInstance\\(\".*/ECB/.*\"\\)"
+      ast_sinks: ["MessageDigest.getInstance", "Cipher.getInstance"]
+    javascript:
+      regex_patterns:
+        - id: "CRY-JS-001"
+          message: "MD5 is insecure."
+          pattern: "createHash\\(['\"]md5['\"]\\)"
+      ast_sinks: ["crypto.createHash"]
+
+MASS_ASSIGNMENT:
+  description: "Binding untrusted input directly to models can allow attackers to modify sensitive fields."
+  cwe: "CWE-915"
+  severity: "HIGH"
+  language_specific:
+    python:
+      ast_sources: ["request.POST", "request.data", "request.form"]
+      ast_sinks: ["save", "update", "create"]
+    ruby:
+      ast_sources: ["params"]
+      ast_sinks: ["new", "create", "update", "update_attributes", "assign_attributes"]
+    php:
+      ast_sources: ["$_POST", "$_REQUEST"]
+      ast_sinks: ["create", "fill", "update"]
+
+INSECURE_DESERIALIZATION:
+  description: "Deserializing untrusted data can lead to Remote Code Execution (RCE)."
+  cwe: "CWE-502"
+  severity: "CRITICAL"
+  language_specific:
+    python:
+      ast_sources: ["request.args", "request.form", "request.json", "request.values"]
+      ast_sinks: ["pickle.loads", "pickle.load", "yaml.load", "jsonpickle.decode", "shelve.open"]
+    java:
+      ast_sources: ["request.getParameter", "request.getHeader", "request.getInputStream"]
+      ast_sinks: ["readObject", "fromXML", "readValue", "ObjectInputStream.readObject", "XMLDecoder.readObject"]
+    php:
+      ast_sources: ["$_GET", "$_POST", "$_REQUEST", "$_COOKIE"]
+      ast_sinks: ["unserialize", "yaml_parse"]
+    ruby:
+      ast_sources: ["params", "cookies"]
+      ast_sinks: ["Marshal.load", "YAML.load", "JSON.load"]
+    javascript:
+      ast_sources: ["req.query", "req.body"]
+      ast_sinks: ["serialize.deserialize", "unserialize"]
+
+XXE:
+  description: "XML External Entity (XXE) injection can lead to local file disclosure or SSRF."
+  cwe: "CWE-611"
+  severity: "HIGH"
+  language_specific:
+    python:
+      ast_sinks: ["lxml.etree.parse", "lxml.etree.fromstring", "xml.dom.minidom.parse", "xml.etree.ElementTree.parse"]
+      regex_patterns:
+        - id: "XXE-PY-001"
+          message: "DTD processing is enabled in lxml parser."
+          pattern: "XMLParser\\(.*resolve_entities\\s*=\\s*True.*\\)"
+    java:
+      ast_sinks: ["DocumentBuilder.parse", "SAXParser.parse", "XMLInputFactory.createXMLStreamReader"]
+      regex_patterns:
+        - id: "XXE-JV-001"
+          message: "Ensure DTDs are disabled in DocumentBuilderFactory."
+          pattern: "setFeature\\(.*disallow-doctype-decl.*false.*\\)"
+
+PROTOTYPE_POLLUTION:
+  description: "User input used to pollute the prototype of a JavaScript object."
+  cwe: "CWE-1321"
+  severity: "HIGH"
+  language_specific:
+    javascript:
+      ast_sources: ["req.query", "req.body", "JSON.parse"]
+      ast_sinks: ["merge", "extend", "lodash.merge", "lodash.extend", "Object.assign"]
+      regex_patterns:
+        - id: "PROTO-JS-001"
+          message: "Potential prototype pollution via dynamic property access."
+          pattern: "\\[\\s*['\"]__proto__['\"]\\s*\\]"
+
+INSECURE_TOKEN_GENERATION:
+  description: "Generating sensitive tokens (reset password, session) with non-cryptographic random generators."
+  cwe: "CWE-330"
+  severity: "HIGH"
+  language_specific:
+    python:
+      ast_sources: ["random.random", "random.randint", "random.choice"]
+      ast_sinks: ["token", "reset_password", "session_id"]
+    javascript:
+      ast_sources: ["Math.random"]
+      ast_sinks: ["token", "reset", "secret"]
+    java:
+      ast_sources: ["Math.random", "Random.nextInt"]
+      ast_sinks: ["token", "passwordReset"]
+
+SSTI:
+  description: "User input in template engines can lead to Server-Side Template Injection."
+  cwe: "CWE-1336"
+  severity: "HIGH"
+  language_specific:
+    python:
+      ast_sources: ["request.args", "request.form", "request.json"]
+      ast_sinks: ["jinja2.Template", "Template", "from_string", "render_template_string"]
+    java:
+      ast_sources: ["request.getParameter", "request.getHeader"]
+      ast_sinks: ["parseExpression", "process", "render"]
+    javascript:
+      ast_sources: ["req.query", "req.body"]
+      ast_sinks: ["ejs.render", "pug.compile", "handlebars.compile", "dot.template"]
+    php:
+      ast_sources: ["$_GET", "$_POST"]
+      ast_sinks: ["createTemplate", "render", "fetch", "display"]
+    ruby:
+      ast_sources: ["params"]
+      ast_sinks: ["ERB.new", "Liquid::Template.parse", "Haml::Engine.new"]
+
+LOG_INJECTION:
+  description: "User input written to logs without sanitization can lead to log forgery."
+  cwe: "CWE-117"
+  severity: "LOW"
+  language_specific:
+    python:
+      ast_sources: ["request.args", "request.form", "request.json"]
+      ast_sinks: ["logging.info", "logging.error", "logging.warning", "logging.debug", "logger.info", "logger.error"]
+    java:
+      ast_sources: ["request.getParameter", "request.getHeader"]
+      ast_sinks: ["logger.info", "logger.error", "logger.debug", "log.info", "log.error"]
+    javascript:
+      ast_sources: ["req.query", "req.body"]
+      ast_sinks: ["console.log", "console.error", "logger.info", "logger.error"]
+    php:
+      ast_sources: ["$_GET", "$_POST"]
+      ast_sinks: ["error_log", "syslog"]
+    ruby:
+      ast_sources: ["params"]
+      ast_sinks: ["logger.info", "logger.error", "Rails.logger.info"]
+
+INSECURE_REFLECTION:
+  description: "Using user input to dynamically instantiate classes or call methods."
+  cwe: "CWE-470"
+  severity: "HIGH"
+  language_specific:
+    java:
+      ast_sinks: ["forName", "invoke", "set", "newInstance"]
+    python:
+      ast_sinks: ["getattr", "setattr", "import_module"]
+    ruby:
+      ast_sinks: ["send", "public_send", "constantize", "safe_constantize"]
+
+UNSAFE_FILE_INCLUDE:
+  description: "User-controlled input in file inclusion statements can lead to LFI/RFI."
+  cwe: "CWE-98"
+  severity: "CRITICAL"
+  language_specific:
+    php:
+      ast_sources: ["$_GET", "$_POST", "$_REQUEST"]
+      ast_sinks: ["include", "include_once", "require", "require_once"]
+
 # --- CONFIGURATION & HEADERS ---
 INSECURE_CONFIG:
   description: "Insecure configuration settings (CORS, Cookies, etc.)."
@@ -450,3 +655,24 @@ INSECURE_CONFIG:
     - id: "CFG-COOKIE-002"
       message: "Cookie without Secure flag."
       pattern: "Set-Cookie:.*(?!Secure).*"
+    - id: "CFG-PY-DEBUG"
+      message: "Debug mode enabled in Python web framework (Flask/Django)."
+      pattern: "(DEBUG\\s*=\\s*True|app\\.run\\(.*debug\\s*=\\s*True.*\\))"
+    - id: "CFG-PHP-ERROR"
+      message: "Display errors enabled in PHP configuration."
+      pattern: "display_errors\\s*=\\s*On"
+
+PII_LEAKAGE:
+  description: "Sensitive information (PII) like emails or credit cards being exposed in logs or console."
+  cwe: "CWE-201"
+  severity: "MEDIUM"
+  language_specific:
+    python:
+      ast_sources: ["email", "password", "credit_card", "ssn", "secret"]
+      ast_sinks: ["print", "logging.info", "logger.info", "console.log"]
+    javascript:
+      ast_sources: ["email", "password", "cc", "token"]
+      ast_sinks: ["console.log", "alert", "logger.info"]
+    java:
+      ast_sources: ["email", "password", "card", "ssn"]
+      ast_sinks: ["System.out.println", "logger.info"]

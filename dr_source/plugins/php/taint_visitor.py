@@ -24,13 +24,14 @@ class PHPTaintVisitor:
         self.sources = sources
         self.sanitizers = sanitizers
         self.code = source_code
+        # PII Patterns
+        self.pii_names = {"password", "email", "secret", "token", "credit_card", "cc", "ssn"}
 
     def get_text(self, node: Node) -> str:
         if not node: return ""
         return self.code[node.start_byte : node.end_byte].decode("utf-8", errors="ignore")
 
     def _get_full_path(self, node: Node) -> Optional[str]:
-        """Resolves a PHP node to a path (e.g., '$user->name' or '$_GET["id"]')."""
         if node.type == "variable_name": return self.get_text(node)
         if node.type == "member_access_expression":
             obj = node.child_by_field_name("object")
@@ -39,18 +40,15 @@ class PHPTaintVisitor:
                 base = self._get_full_path(obj)
                 return f"{base}->{self.get_text(name)}" if base else None
         if node.type == "subscript_expression":
-            # Handle $_GET['id']
             obj = node.child_by_field_name("callable") or (node.children[0] if node.children else None)
             if obj:
                 base = self._get_full_path(obj)
-                # We simplify subscript access to 'obj[]' or 'obj[key]'
                 return f"{base}[]" if base else None
         return None
 
     def is_tainted(self, path: str) -> Optional[Dict[str, Any]]:
         for scope in reversed(self.scopes):
             if path in scope: return scope[path]
-            # Recursive check: if '$user->name' is checked, also check '$user'
             if "->" in path:
                 base = path.split("->")[0]
                 if base in scope: return scope[base]
@@ -88,7 +86,13 @@ class PHPTaintVisitor:
         for child in node.children: paths.update(self.collect_identifiers(child))
         return paths
 
-    def check_source_or_sanitizer(self, node: Node) -> tuple[Optional[str], Optional[str]]:
+    def check_source_or_sanitizer(self, node: Node, var_name: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+        # Heuristic: Check if variable name is sensitive (for PII_LEAKAGE)
+        if var_name:
+            clean_name = var_name.lower().replace("$", "")
+            if any(p in clean_name for p in self.pii_names):
+                return "source", f"Sensitive variable name: {var_name}"
+
         name = ""
         if node.type == "function_call_expression":
             func = node.child_by_field_name("function")
@@ -96,6 +100,7 @@ class PHPTaintVisitor:
         else:
             path = self._get_full_path(node)
             if path: name = path
+        
         if not name: return None, None
         if name in self.sanitizers: return "sanitizer", name
         if name in self.sources or any(name.startswith(s) for s in self.sources): return "source", name
@@ -114,8 +119,7 @@ class PHPTaintVisitor:
             self.scopes.append({}); self.constants.append({})
 
         if node.type == "assignment_expression":
-            left = node.child_by_field_name("left")
-            right = node.child_by_field_name("right")
+            left, right = node.child_by_field_name("left"), node.child_by_field_name("right")
             if left and right:
                 path = self._get_full_path(left)
                 if path: self._handle_assignment(path, right, node.start_point[0] + 1)
@@ -128,19 +132,33 @@ class PHPTaintVisitor:
 
         elif node.type == "echo_statement":
             if "echo" in self.sinks: self._check_sink_violation(node, "echo")
+            
+        # HANDLE PHP INCLUDES/REQUIRES (Special nodes in Tree-sitter)
+        elif node.type in ["include_expression", "include_once_expression", "require_expression", "require_once_expression"]:
+            # Standardize name to 'include' or 'require' for KB matching
+            name = node.type.split("_")[0]
+            if name in self.sinks:
+                # The path is the only child that is not the keyword
+                for child in node.children:
+                    if child.is_named:
+                        self._check_sink_violation_for_node(child, name, node.start_point[0] + 1)
+                        break
 
         for child in node.children: self.visit(child)
         if should_push:
             self.constants.pop(); self.scopes.pop()
 
     def _handle_assignment(self, path: str, value_node: Node, line: int):
+        # We pass 'path' to check for sensitive variable names
+        kind, name = self.check_source_or_sanitizer(value_node, var_name=path)
+        if kind == "sanitizer": self.clear_taint(path); return
+        if kind == "source":
+            self.set_tainted(path, {"source": name, "trace": [f"Tainted by {name} at line {line}"]}); return
+            
         const_val = self._resolve_value(value_node)
         if const_val is not None:
             self.set_constant(path, const_val); self.clear_taint(path); return
-        kind, name = self.check_source_or_sanitizer(value_node)
-        if kind == "sanitizer": self.clear_taint(path); return
-        if kind == "source":
-            self.set_tainted(path, {"source": name, "trace": [f"Tainted by source {name} at line {line}"]}); return
+
         for p in self.collect_identifiers(value_node):
             t = self.is_tainted(p)
             if t:

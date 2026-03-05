@@ -25,13 +25,14 @@ class JavaScriptTaintVisitor:
         self.sources = sources
         self.sanitizers = sanitizers
         self.code = source_code
+        # PII Patterns
+        self.pii_names = {"password", "email", "secret", "token", "credit_card", "cc", "ssn"}
 
     def get_text(self, node: Node) -> str:
         if not node: return ""
         return self.code[node.start_byte : node.end_byte].decode("utf-8", errors="ignore")
 
     def _get_full_path(self, node: Node) -> Optional[str]:
-        """Resolves a JS node to a property path (e.g., 'user.profile.name')."""
         if node.type == "identifier": return self.get_text(node)
         if node.type == "member_expression":
             obj = node.child_by_field_name("object")
@@ -84,7 +85,13 @@ class JavaScriptTaintVisitor:
         for child in node.children: paths.update(self.collect_identifiers(child))
         return paths
 
-    def check_source_or_sanitizer(self, node: Node) -> tuple[Optional[str], Optional[str]]:
+    def check_source_or_sanitizer(self, node: Node, var_name: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+        # Heuristic: Check if variable name is sensitive
+        if var_name:
+            clean_name = var_name.lower().split(".")[-1]
+            if any(p in clean_name for p in self.pii_names):
+                return "source", f"Sensitive variable name: {var_name}"
+
         name = ""
         if node.type == "call_expression":
             func = node.child_by_field_name("function")
@@ -130,7 +137,7 @@ class JavaScriptTaintVisitor:
                 elif base in self.sinks: match_name = base
                 else:
                     for s in self.sinks:
-                        if s.endswith("." + base): match_name = s; break
+                        if s.endswith("." + base) or s == base: match_name = s; break
                 if match_name: self._check_sink_violation(node, match_name)
                 else:
                     f_def = self.functions.get(name)
@@ -145,13 +152,15 @@ class JavaScriptTaintVisitor:
             self.constants.pop(); self.scopes.pop()
 
     def _handle_assignment(self, path: str, value_node: Node, line: int):
-        const_val = self._resolve_value(value_node)
-        if const_val is not None:
-            self.set_constant(path, const_val); self.clear_taint(path); return
-        kind, name = self.check_source_or_sanitizer(value_node)
+        kind, name = self.check_source_or_sanitizer(value_node, var_name=path)
         if kind == "sanitizer": self.clear_taint(path); return
         if kind == "source":
             self.set_tainted(path, {"source": name, "trace": [f"Tainted by {name} at line {line}"]}); return
+
+        const_val = self._resolve_value(value_node)
+        if const_val is not None:
+            self.set_constant(path, const_val); self.clear_taint(path); return
+
         for p in self.collect_identifiers(value_node):
             t = self.is_tainted(p)
             if t:
@@ -168,7 +177,6 @@ class JavaScriptTaintVisitor:
             self._check_sink_violation_for_node(arg, sink_name, node.start_point[0] + 1)
 
     def _check_sink_violation_for_node(self, node: Node, sink_name: str, line: int):
-        if self._resolve_value(node) is not None: return
         for path in self.collect_identifiers(node):
             t = self.is_tainted(path)
             if t: self.vulnerabilities.append({"sink": sink_name, "variable": path, "line": line, "trace": t["trace"]}); break
@@ -182,7 +190,10 @@ class JavaScriptTaintVisitor:
         tainted = {}
         for idx, arg in enumerate(actual_args):
             if idx < len(actual_params):
-                p_name = t_code[actual_params[idx].start_byte : actual_params[idx].end_byte].decode("utf-8")
+                p_name_node = actual_params[idx]
+                if p_name_node.type == "formal_parameter":
+                    p_name_node = p_name_node.child_by_field_name("name") or p_name_node
+                p_name = t_code[p_name_node.start_byte : p_name_node.end_byte].decode("utf-8")
                 for path in self.collect_identifiers(arg):
                     t = self.is_tainted(path)
                     if t:

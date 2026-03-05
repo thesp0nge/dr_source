@@ -155,6 +155,7 @@ class Scanner:
                 continue
 
         # 2. Analysis Phase: Iterate with Progress Bar
+        reported_keys = set() # For deduplication
         for file_path in tqdm(files_to_scan, desc="Analyzing files", unit="file"):
             _, ext = os.path.splitext(file_path)
 
@@ -171,7 +172,12 @@ class Scanner:
                                 plugin.project_index = self.project_index
                             
                             findings = plugin.analyze(file_path)
-                            all_findings_dataclass.extend(findings)
+                            # Deduplicate findings
+                            for f in findings:
+                                key = (f.file_path, f.line_number, f.vulnerability_type, f.message)
+                                if key not in reported_keys:
+                                    all_findings_dataclass.append(f)
+                                    reported_keys.add(key)
                         except TimeoutException:
                             raise
                         except Exception as e:

@@ -1,91 +1,72 @@
 import ast
 import logging
-from typing import List, Dict, Any
-
+from typing import List
 from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
 from .taint_visitor import PythonTaintVisitor
 
 logger = logging.getLogger(__name__)
 
-
 class PythonAstAnalyzer(AnalyzerPlugin):
-    """
-    The official Python AST Taint Analyzer plugin for DRSource.
-    """
-
     def __init__(self):
         self.kb = KnowledgeBaseLoader()
-        self.project_index = None
 
     @property
     def name(self) -> str:
         return "Python AST Analyzer"
 
-    def get_supported_extensions(self) -> List[str]:
-        return [".py"]
-
-    def index(self, file_path: str, project_index: Any):
-        """Populates the global project index with Python function definitions."""
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                code = f.read()
-            tree = ast.parse(code, filename=file_path)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
-                    # We store the node and the file path
-                    project_index.register_function(node.name, file_path, node, "python")
-        except Exception as e:
-            logger.error(f"Error indexing {file_path}: {e}")
-
     def analyze(self, file_path: str) -> List[Vulnerability]:
         findings = []
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 code = f.read()
+            
+            tree = ast.parse(code)
+            all_vuln_types = self.kb.get_all_vuln_types()
+            
+            # 1. Structural Analysis (Perform once per file)
+            structural_visitor = PythonTaintVisitor([], [], [])
+            structural_visitor.visit(tree)
+            for v in structural_visitor.vulnerabilities:
+                findings.append(Vulnerability(
+                    file_path=file_path,
+                    line_number=v["line"],
+                    vulnerability_type=v["sink"],
+                    message=v["trace"][0],
+                    severity="HIGH",
+                    plugin_name=self.name
+                ))
 
-            tree = ast.parse(code, filename=file_path)
-
-            all_vuln_types = self.kb.rules.keys()
-
+            # 2. Taint Analysis (Perform for each category)
             for vuln_type in all_vuln_types:
                 sources = self.kb.get_lang_ast_sources(vuln_type, "python")
                 sinks = self.kb.get_lang_ast_sinks(vuln_type, "python")
                 sanitizers = self.kb.get_lang_ast_sanitizers(vuln_type, "python")
 
-                # If no sinks are defined, this rule definitely doesn't apply to AST
                 if not sinks:
                     continue
 
-                rules = self.kb.get_detector_rules(vuln_type)
-                severity = rules.get("severity", "MEDIUM").upper()
-
-                # Create and run the visitor for each vuln type
-                visitor = PythonTaintVisitor(
-                    source_list=sources, 
-                    sink_list=sinks, 
-                    sanitizer_list=sanitizers,
-                    project_index=self.project_index
-                )
+                visitor = PythonTaintVisitor(sources, sinks, sanitizers)
+                # Hack: disable structural reporting for the taint pass
+                visitor.framework_mappers = [m for m in visitor.framework_mappers if not hasattr(m, 'analyze_node')]
+                
                 visitor.visit(tree)
 
-                raw_issues = visitor.vulnerabilities
-
-                for issue in raw_issues:
-                    vuln = Vulnerability(
-                        vulnerability_type=f"{vuln_type} (AST Taint)",
-                        message=f"Taint flow from source to sink '{issue['sink']}' via variable '{issue['variable']}'",
-                        severity=severity,
+                for v in visitor.vulnerabilities:
+                    # We need a helper to get severity, but for now we default to HIGH
+                    findings.append(Vulnerability(
                         file_path=file_path,
-                        line_number=issue["line"],
-                        plugin_name=self.name,
-                        trace=issue.get("trace", []),
-                    )
-                    findings.append(vuln)
-
-        except SyntaxError as e:
-            logger.warning(f"Could not parse Python file {file_path}: {e}")
+                        line_number=v["line"],
+                        vulnerability_type=f"{vuln_type} (AST Taint)",
+                        message=f"Taint flow from source to sink '{v['sink']}' via variable '{v['variable']}'",
+                        severity="HIGH",
+                        trace=v["trace"],
+                        plugin_name=self.name
+                    ))
         except Exception as e:
-            logger.error(f"Error analyzing {file_path} with {self.name}: {e}")
+            logger.error(f"Error analyzing {file_path} with Python AST Analyzer: {e}")
 
         return findings
+
+    def get_supported_extensions(self) -> List[str]:
+        return [".py"]

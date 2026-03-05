@@ -30,13 +30,14 @@ class TaintVisitor:
 
         self.sources = set(s.split(".")[-1] for s in source_list)
         self.sanitizers = set(s.split(".")[-1] for s in sanitizer_list)
+        # PII Patterns
+        self.pii_names = {"password", "email", "secret", "token", "credit_card", "cc", "ssn"}
 
     def get_text(self, node: Node) -> str:
         if not node: return ""
         return self.code[node.start_byte : node.end_byte].decode("utf-8", errors="ignore")
 
     def _get_full_path(self, node: Node) -> Optional[str]:
-        """Resolves a Java node to a field path (e.g., 'user.name')."""
         if node.type == "identifier": return self.get_text(node)
         if node.type == "field_access":
             obj = node.child_by_field_name("object")
@@ -88,14 +89,13 @@ class TaintVisitor:
         for child in node.children: paths.update(self.collect_identifiers(child))
         return paths
 
-    def get_method_name(self, node: Node) -> str:
-        name_node = node.child_by_field_name("name")
-        if name_node: return self.get_text(name_node)
-        for child in node.children:
-            if child.type == "identifier": return self.get_text(child)
-        return ""
+    def check_source_or_sanitizer(self, node: Node, var_name: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+        # Heuristic: Check if variable name is sensitive
+        if var_name:
+            clean_name = var_name.lower().split(".")[-1]
+            if any(p in clean_name for p in self.pii_names):
+                return "source", f"Sensitive variable name: {var_name}"
 
-    def check_source_or_sanitizer(self, node: Node) -> tuple[Optional[str], Optional[str]]:
         name = ""
         if node.type == "method_invocation": name = self.get_method_name(node)
         else:
@@ -107,6 +107,13 @@ class TaintVisitor:
         for mapper in self.framework_mappers:
             if isinstance(mapper, JakartaEEMapper) and name in mapper.SERVLET_SOURCES: return "source", name
         return None, None
+
+    def get_method_name(self, node: Node) -> str:
+        name_node = node.child_by_field_name("name")
+        if name_node: return self.get_text(name_node)
+        for child in node.children:
+            if child.type == "identifier": return self.get_text(child)
+        return ""
 
     def visit(self, node: Node):
         if node is None: return
@@ -123,6 +130,12 @@ class TaintVisitor:
             if name: self.functions[name] = node
         
         if node.type == "formal_parameter":
+            p_name_node = node.child_by_field_name("name") or next((c for c in node.children if c.type == "identifier"), None)
+            if p_name_node:
+                p_name = self.get_text(p_name_node)
+                if any(p in p_name.lower() for p in self.pii_names):
+                    self.set_tainted(p_name, {"source": f"Sensitive parameter: {p_name}", "trace": [f"Sensitive data in parameter {p_name} at line {node.start_point[0] + 1}"]})
+
             for mapper in self.framework_mappers:
                 src_name = mapper.get_source_name(node, self.code)
                 if src_name: self.set_tainted(src_name, {"source": "Framework", "trace": [f"Tainted by {mapper.__class__.__name__} at line {node.start_point[0] + 1}"]})
@@ -130,7 +143,6 @@ class TaintVisitor:
         is_scope_node = node.type in ["method_declaration", "constructor_declaration", "block"]
         should_push = is_scope_node and not self.skip_first_scope
         if is_scope_node and self.skip_first_scope: self.skip_first_scope = False
-        
         if should_push:
             self.scopes.append({}); self.constants.append({})
 
@@ -147,7 +159,7 @@ class TaintVisitor:
             if method_name in self.sinks: match_name = method_name
             else:
                 for s_name in self.sinks:
-                    if s_name.endswith("." + method_name): match_name = s_name; break
+                    if s_name.endswith("." + method_name) or s_name == method_name: match_name = s_name; break
             
             if match_name: self._check_sink_violation(node, match_name)
             else:
@@ -178,13 +190,15 @@ class TaintVisitor:
             self.constants.pop(); self.scopes.pop()
 
     def _handle_assignment(self, path: str, value_node: Node, line: int):
-        const_val = self._resolve_value(value_node)
-        if const_val is not None:
-            self.set_constant(path, const_val); self.clear_taint(path); return
-        kind, name = self.check_source_or_sanitizer(value_node)
+        kind, name = self.check_source_or_sanitizer(value_node, var_name=path)
         if kind == "sanitizer": self.clear_taint(path); return
         if kind == "source":
             self.set_tainted(path, {"source": name, "trace": [f"Tainted by {name} at line {line}"]}); return
+
+        const_val = self._resolve_value(value_node)
+        if const_val is not None:
+            self.set_constant(path, const_val); self.clear_taint(path); return
+
         for identifier in self.collect_identifiers(value_node):
             taint = self.is_tainted(identifier)
             if taint:
@@ -201,7 +215,9 @@ class TaintVisitor:
             self._check_sink_violation_for_node(arg, method_name, node.start_point[0] + 1)
 
     def _check_sink_violation_for_node(self, node: Node, sink_name: str, line: int):
-        if self._resolve_value(node) is not None: return
+        # NOTE: For PII LEAKAGE, we don't skip literals. But this generic visitor 
+        # is used for everything. We rely on the fact that if a literal was assigned 
+        # to a 'password' variable, _handle_assignment marked it as tainted.
         for path in self.collect_identifiers(node):
             taint = self.is_tainted(path)
             if taint: self.vulnerabilities.append({"sink": sink_name, "variable": path, "line": line, "trace": taint["trace"]}); break

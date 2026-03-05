@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.170.0] - 2026-03-05
+
+### Added
+
+- **Universal Field-Sensitive Taint Analysis:**
+  - Implemented deep object property tracking for **Python, Java, JavaScript,
+    PHP, and Ruby**.
+  - The engine now correctly handles assignments like `obj.attr = tainted` and
+    distinguishes between safe and tainted fields within the same object.
+  - Full support for nested properties (e.g., `user.profile.name`) and recursive
+    path resolution.
+- **Advanced Framework Intelligence:**
+  - **Django Support:** Heuristic detection of `request` objects and structural
+    analysis of `ModelForm` to detect Mass Assignment (`fields = '__all__'`).
+  - **FastAPI Support:** Support for `async def` routes and automatic parameter
+    source detection.
+  - **Ruby on Rails Support:** Deep tracking of `params[]` and mapping of
+    ActiveRecord `create/update` sinks.
+  - **Java Enterprise Support:** Full mapping for Spring Boot, Jakarta EE
+    Servlets, Hibernate/JPA, and JAX-RS.
+- **Massive Knowledge Base Expansion (Supreme Edition):**
+  - **RCE Protection:** Added Insecure Deserialization (all languages) and
+    expanded SSTI (Jinja2, Twig, EJS, ERB).
+  - **Compliance & Crypto:** Added Weak Cryptography (MD5, SHA1, AES-ECB) and
+    Insecure JWT (verify=False, none algorithm).
+  - **Logic Vulnerabilities:** Implemented Mass Assignment detection and
+    Insecure Token Generation (predictable random for passwords).
+  - **Data Safety:** New PII Leakage category using semantic heuristics on
+    variable names (e.g., `email`, `password`).
+  - **LFI/RFI Support:** Dedicated PHP `include/require` statement analysis.
+- **Robust Taint Propagation:**
+  - Added support for Python f-string (`JoinedStr`) and call chaining (e.g.,
+    `db.cursor().execute()`).
+  - Improved Ruby argument extraction for methods called without parentheses.
+  - Suffix-based sink matching implemented for all languages to handle various
+    object receivers.
+
+### Fixed
+
+- **Global Deduplication:** Implemented a unique-key system in the core Scanner
+  to prevent duplicate findings across multiple analyzer passes.
+- **Regex Optimization:** Refactored `RegexAnalyzer` to use a per-line set
+  tracking, eliminating redundant reports for the same rule on the same line.
+- **API Integrity:** Standardized all plugins to strictly follow the
+  `AnalyzerPlugin` interface, fixing various runtime attribute errors.
+- **JavaScript Sink Detection:** Fixed property assignment sinks like
+  `innerHTML` being ignored.
+
 ## [0.150.0] - 2026-03-04
 
 ### Added
