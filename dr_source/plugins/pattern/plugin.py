@@ -90,7 +90,7 @@ class PatternAnalyzer(AnalyzerPlugin):
 
             if lang == "python":
                 target_ast = ast.parse(code, filename=file_path)
-                nodes = ast.walk(target_ast)
+                nodes = list(ast.walk(target_ast))
             elif lang in self.parsers:
                 parser = self.parsers[lang]
                 # PHP fix: ensure code starts with <?php for tree-sitter
@@ -99,7 +99,7 @@ class PatternAnalyzer(AnalyzerPlugin):
                     effective_code = "<?php " + code
                 
                 tree = parser.parse(bytes(effective_code, "utf-8"))
-                nodes = self._walk_ts_tree(tree.root_node)
+                nodes = list(self._walk_ts_tree(tree.root_node))
             else:
                 return []
 

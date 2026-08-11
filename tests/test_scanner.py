@@ -1,6 +1,7 @@
 import unittest
 import os
-from unittest.mock import patch, MagicMock, call
+import tempfile
+from unittest.mock import patch, MagicMock
 from typing import List
 
 # Import the API
@@ -39,7 +40,84 @@ class MockAnalyzer(AnalyzerPlugin):
     )
 
 
+class RecordingAnalyzer(AnalyzerPlugin):
+    def __init__(self, extensions, accepted_names=None):
+        self.extensions = extensions
+        self.accepted_names = accepted_names
+        self.analyzed = []
+
+    @property
+    def name(self) -> str:
+        return "Recording Analyzer"
+
+    def get_supported_extensions(self) -> List[str]:
+        return self.extensions
+
+    def supports_file(self, file_path: str) -> bool:
+        if self.accepted_names is not None:
+            return os.path.basename(file_path) in self.accepted_names
+        return super().supports_file(file_path)
+
+    def analyze(self, file_path: str) -> List[Vulnerability]:
+        self.analyzed.append(file_path)
+        return []
+
+
 class TestScanner(unittest.TestCase):
+    @patch("dr_source.core.scanner.ScanDatabase")
+    @patch("importlib.metadata.entry_points", return_value=[])
+    def test_prunes_ignored_directories_by_component(
+        self, mock_entry_points, mock_scan_database
+    ):
+        with tempfile.TemporaryDirectory() as target:
+            ignored_dir = os.path.join(target, "node_modules")
+            allowed_dir = os.path.join(target, "build_tools")
+            os.makedirs(ignored_dir)
+            os.makedirs(allowed_dir)
+            ignored_file = os.path.join(ignored_dir, "ignored.js")
+            allowed_file = os.path.join(allowed_dir, "allowed.js")
+            for path in (ignored_file, allowed_file):
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write("const value = 1;\n")
+
+            analyzer = RecordingAnalyzer([".js"])
+            scanner = Scanner(target)
+            scanner.extension_map = {".js": [analyzer]}
+            scanner.scan()
+
+            self.assertEqual(analyzer.analyzed, [allowed_file])
+            self.assertEqual(scanner.num_files_analyzed, 1)
+
+    @patch("dr_source.core.scanner.ScanDatabase")
+    @patch("importlib.metadata.entry_points", return_value=[])
+    def test_routes_only_known_manifests_to_dependency_plugin(
+        self, mock_entry_points, mock_scan_database
+    ):
+        with tempfile.TemporaryDirectory() as target:
+            requirements = os.path.join(target, "requirements.txt")
+            pom = os.path.join(target, "pom.xml")
+            notes = os.path.join(target, "notes.txt")
+            metadata = os.path.join(target, "metadata.xml")
+            for path in (requirements, pom, notes, metadata):
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write("test\n")
+
+            dependency = RecordingAnalyzer(
+                [".txt", ".xml"], {"requirements.txt", "pom.xml"}
+            )
+            catch_all = RecordingAnalyzer([".*"])
+            scanner = Scanner(target)
+            scanner.extension_map = {
+                ".txt": [dependency],
+                ".xml": [dependency],
+                ".*": [catch_all],
+            }
+            scanner.scan()
+
+            self.assertCountEqual(dependency.analyzed, [requirements, pom])
+            self.assertEqual(catch_all.analyzed, [])
+            self.assertEqual(scanner.num_files_analyzed, 2)
+
     # --- 2. Mock Plugin Discovery AND the ScanDatabase ---
     @patch("dr_source.core.scanner.ScanDatabase")  # Patch the *real* DB class
     @patch(
@@ -94,7 +172,7 @@ class TestScanner(unittest.TestCase):
 
         # Arg 2: list of vulnerability dictionaries
         stored_vulns_list = store_call_args[1]
-        self.assertEqual(len(stored_vulns_list), 5)
+        self.assertEqual(len(stored_vulns_list), 1)
 
         # Check the dictionary content
         stored_vuln_dict = stored_vulns_list[0]
@@ -112,6 +190,6 @@ class TestScanner(unittest.TestCase):
         self.assertEqual(summary_call.args[0], 123)
 
         # Check the keyword arguments
-        self.assertEqual(summary_call.kwargs["num_vulnerabilities"], 5)
+        self.assertEqual(summary_call.kwargs["num_vulnerabilities"], 1)
         self.assertGreater(summary_call.kwargs["num_files_analyzed"], 0)
         self.assertGreater(summary_call.kwargs["scan_duration"], 0)

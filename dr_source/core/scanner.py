@@ -2,7 +2,7 @@ import os
 import logging
 import time
 import importlib.metadata
-from typing import List, Dict, Callable
+from typing import List, Dict
 from tqdm import tqdm
 
 from dr_source.api import AnalyzerPlugin, Vulnerability
@@ -77,6 +77,37 @@ class Scanner:
             except Exception as e:
                 logger.error(f"Failed to load plugin {ep.name}: {e}")
 
+    def _plugins_for_file(self, file_path: str) -> List[AnalyzerPlugin]:
+        """Return only the plugins that should process ``file_path``.
+
+        Explicit plugins may opt into otherwise ignored extensions (for example,
+        the dependency analyzer handles requirements.txt and pom.xml). Catch-all
+        plugins never receive ignored text, metadata, or binary files.
+        """
+        _, ext = os.path.splitext(file_path)
+        plugins = [
+            plugin
+            for plugin in self.extension_map.get(ext, [])
+            if plugin.supports_file(file_path)
+        ]
+
+        if ext not in self.ignored_extensions:
+            plugins.extend(
+                plugin
+                for plugin in self.extension_map.get(".*", [])
+                if plugin.supports_file(file_path)
+            )
+
+        # A plugin may be registered under more than one matching key. Deduplicate
+        # by identity because third-party plugin objects are not required to hash.
+        unique_plugins = []
+        seen_plugin_ids = set()
+        for plugin in plugins:
+            if id(plugin) not in seen_plugin_ids:
+                unique_plugins.append(plugin)
+                seen_plugin_ids.add(id(plugin))
+        return unique_plugins
+
     def scan(self):
         """
         Walks the target directory, delegates files to plugins,
@@ -94,35 +125,16 @@ class Scanner:
         files_to_scan = []
 
         if os.path.isfile(self.target_path):
-            file = os.path.basename(self.target_path)
-            # Skip ignored file extensions
-            if not any(file.endswith(ext) for ext in self.ignored_extensions):
-                _, ext = os.path.splitext(file)
-                plugins = self.extension_map.get(ext, []) + self.extension_map.get(".*", [])
-                if plugins:
-                    files_to_scan.append(self.target_path)
+            if self._plugins_for_file(self.target_path):
+                files_to_scan.append(self.target_path)
         elif os.path.isdir(self.target_path):
             for root, dirs, files in os.walk(self.target_path):
+                # Pruning dirs in place prevents os.walk from descending into them.
+                dirs[:] = [directory for directory in dirs if directory not in self.ignored_dirs]
                 for file in files:
-                    # Skip ignored directories
-                    for ignored_dir in self.ignored_dirs:
-                        if ignored_dir in root:
-                            continue # Skip to next file
-                    
-                    # Skip ignored file extensions
-                    if any(file.endswith(ext) for ext in self.ignored_extensions):
-                        continue # Skip to next file
-
-                    _, ext = os.path.splitext(file)
-
-                    # Check if we have specific plugins OR a catch-all plugin (like regex)
-                    # This filtering ensures the progress bar count is accurate
-                    plugins = self.extension_map.get(ext, []) + self.extension_map.get(
-                        ".*", []
-                    )
-
-                    if plugins:
-                        files_to_scan.append(os.path.join(root, file))
+                    file_path = os.path.join(root, file)
+                    if self._plugins_for_file(file_path):
+                        files_to_scan.append(file_path)
         else:
             logger.warning(f"Target path '{self.target_path}' is neither a file nor a directory. Skipping scan.")
 
@@ -130,8 +142,7 @@ class Scanner:
 
         # 1.5 Indexing Phase: Collect global symbols across all files
         for file_path in tqdm(files_to_scan, desc="Indexing project", unit="file"):
-            _, ext = os.path.splitext(file_path)
-            plugins = self.extension_map.get(ext, []) + self.extension_map.get(".*", [])
+            plugins = self._plugins_for_file(file_path)
             
             try:
                 with timeout_session(self.timeout):
@@ -157,11 +168,7 @@ class Scanner:
         # 2. Analysis Phase: Iterate with Progress Bar
         reported_keys = set() # For deduplication
         for file_path in tqdm(files_to_scan, desc="Analyzing files", unit="file"):
-            _, ext = os.path.splitext(file_path)
-
-            # Re-fetch plugins (fast)
-            plugins_to_run = self.extension_map.get(ext, [])
-            plugins_to_run.extend(self.extension_map.get(".*", []))
+            plugins_to_run = self._plugins_for_file(file_path)
 
             try:
                 with timeout_session(self.timeout):

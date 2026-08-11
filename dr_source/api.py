@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+import os
 from typing import List, Literal, Any
 
 # Define standard severity levels
@@ -78,3 +79,9 @@ class AnalyzerPlugin(ABC):
         to populate the ProjectIndex for inter-file analysis.
         """
         pass
+
+    def supports_file(self, file_path: str) -> bool:
+        """Return whether this plugin wants to process a particular file."""
+        _, extension = os.path.splitext(file_path)
+        supported = self.get_supported_extensions()
+        return ".*" in supported or extension in supported

@@ -26,6 +26,10 @@ class DependencyAnalyzer(AnalyzerPlugin):
     def get_supported_extensions(self) -> List[str]:
         return [".txt", ".xml"]
 
+    def supports_file(self, file_path: str) -> bool:
+        """Limit dependency analysis to manifests understood by this plugin."""
+        return os.path.basename(file_path) in {"requirements.txt", "pom.xml"}
+
     def analyze(self, file_path: str) -> List[Vulnerability]:
         filename = os.path.basename(file_path)
 

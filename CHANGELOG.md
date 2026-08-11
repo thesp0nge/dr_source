@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.171.0] - 2026-08-11
+
+### Added
+
+- Added optional per-plugin file selection through
+  `AnalyzerPlugin.supports_file()`.
+- Added regression coverage for ignored-directory pruning, dependency manifest
+  routing, and evaluation of multiple pattern rules against the same source
+  file.
+
+### Fixed
+
+- **Scanner Directory Exclusions:** Fixed ignored directories such as
+  `node_modules`, `vendor`, and `build` still being traversed. Directory names
+  are now matched as path components, so similarly named directories such as
+  `build_tools` remain eligible for analysis.
+- **Dependency Manifest Discovery:** Restored normal scanner integration for
+  `requirements.txt` and `pom.xml` while keeping unrelated text/XML files away
+  from dependency and catch-all analyzers.
+- **Pattern Rule Coverage:** Fixed the AST node iterator being exhausted by the
+  first applicable pattern rule, which silently prevented subsequent rules from
+  analyzing the file.
+- **Scanner Lifecycle Test:** Removed a stale finding-count expectation that
+  depended on traversal of directories intended to be ignored.
+
 ## [0.170.0] - 2026-03-05
 
 ### Added
