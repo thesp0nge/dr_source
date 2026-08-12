@@ -6,12 +6,13 @@ from typing import List, Set, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 class PythonTaintVisitor(ast.NodeVisitor):
-    def __init__(self, source_list: List[str], sink_list: List[Any], sanitizer_list: List[str], project_index: Optional[Any] = None, depth: int = 0):
+    def __init__(self, source_list: List[str], sink_list: List[Any], sanitizer_list: List[str], project_index: Optional[Any] = None, depth: int = 0, structural_analysis: bool = True):
         self.sources = set(source_list)
         self.sanitizers = set(s.split(".")[-1] for s in sanitizer_list)
         self.project_index = project_index
         self.depth = depth
         self.max_depth = 3
+        self.structural_analysis = structural_analysis
         
         self.sinks = {}
         for s in sink_list:
@@ -29,15 +30,16 @@ class PythonTaintVisitor(ast.NodeVisitor):
 
     def visit(self, node: ast.AST):
         # Allow framework mappers to perform structural analysis
-        for mapper in self.framework_mappers:
-            struct_vulns = mapper.analyze_node(node)
-            for v in struct_vulns:
-                self.vulnerabilities.append({
-                    "sink": v["type"],
-                    "variable": "structural",
-                    "line": v["line"],
-                    "trace": [v["message"]]
-                })
+        if self.structural_analysis:
+            for mapper in self.framework_mappers:
+                struct_vulns = mapper.analyze_node(node)
+                for v in struct_vulns:
+                    self.vulnerabilities.append({
+                        "sink": v["type"],
+                        "variable": "structural",
+                        "line": v["line"],
+                        "trace": [v["message"]]
+                    })
         super().visit(node)
 
     def _get_full_attr_name(self, node: ast.AST) -> Optional[str]:

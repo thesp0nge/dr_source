@@ -55,3 +55,9 @@ ruby_ast = "dr_source.plugins.ruby.plugin:RubyAstAnalyzer"
 where = ["."] # Search for packages in the root
 include = ["dr_source*"] # Find dr_source and all its sub-packages
 exclude = ["tests*"] # Exclude tests from the package
+
+[tool.pytest.ini_options]
+# Scanner fixtures include deliberately vulnerable files named *_test.py. They
+# are analysis inputs, not pytest modules, so collect only the project's actual
+# test_*.py files.
+python_files = ["test_*.py"]

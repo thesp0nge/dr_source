@@ -57,7 +57,18 @@ class Scanner:
         logger.debug("Loading analyzer plugins...")
 
         try:
-            entry_points = importlib.metadata.entry_points(group="dr_source.plugins")
+            try:
+                entry_points = importlib.metadata.entry_points(group="dr_source.plugins")
+            except TypeError:
+                # Python 3.9's stdlib importlib.metadata does not support the
+                # group keyword. Keep compatibility with every supported
+                # Python version while avoiding the deprecated dict API when
+                # the selectable API is available.
+                discovered = importlib.metadata.entry_points()
+                if hasattr(discovered, "select"):
+                    entry_points = discovered.select(group="dr_source.plugins")
+                else:
+                    entry_points = discovered.get("dr_source.plugins", [])
         except Exception as e:
             logger.error(f"Error loading entry points: {e}")
             entry_points = []

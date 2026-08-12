@@ -1,6 +1,6 @@
 import ast
 import logging
-from typing import List
+from typing import Any, List
 from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
 from .taint_visitor import PythonTaintVisitor
@@ -10,10 +10,24 @@ logger = logging.getLogger(__name__)
 class PythonAstAnalyzer(AnalyzerPlugin):
     def __init__(self):
         self.kb = KnowledgeBaseLoader()
+        self.project_index = None
 
     @property
     def name(self) -> str:
         return "Python AST Analyzer"
+
+    def index(self, file_path: str, project_index: Any):
+        """Register top-level Python functions for inter-file analysis."""
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as source:
+                tree = ast.parse(source.read(), filename=file_path)
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    project_index.register_function(
+                        node.name, file_path, node, "python"
+                    )
+        except (OSError, SyntaxError) as error:
+            logger.error(f"Error indexing Python file {file_path}: {error}")
 
     def analyze(self, file_path: str) -> List[Vulnerability]:
         findings = []
@@ -46,20 +60,25 @@ class PythonAstAnalyzer(AnalyzerPlugin):
                 if not sinks:
                     continue
 
-                visitor = PythonTaintVisitor(sources, sinks, sanitizers)
-                # Hack: disable structural reporting for the taint pass
-                visitor.framework_mappers = [m for m in visitor.framework_mappers if not hasattr(m, 'analyze_node')]
+                rules = self.kb.get_detector_rules(vuln_type)
+                severity = rules.get("severity", "MEDIUM").upper()
+                visitor = PythonTaintVisitor(
+                    sources,
+                    sinks,
+                    sanitizers,
+                    project_index=self.project_index,
+                    structural_analysis=False,
+                )
                 
                 visitor.visit(tree)
 
                 for v in visitor.vulnerabilities:
-                    # We need a helper to get severity, but for now we default to HIGH
                     findings.append(Vulnerability(
                         file_path=file_path,
                         line_number=v["line"],
                         vulnerability_type=f"{vuln_type} (AST Taint)",
                         message=f"Taint flow from source to sink '{v['sink']}' via variable '{v['variable']}'",
-                        severity="HIGH",
+                        severity=severity,
                         trace=v["trace"],
                         plugin_name=self.name
                     ))

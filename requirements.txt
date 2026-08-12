@@ -1,0 +1,6 @@
+# Install DRSource and its runtime dependencies from pyproject.toml in editable
+# mode so plugin entry points remain available while developing locally.
+-e .
+
+# Test dependency
+pytest>=7

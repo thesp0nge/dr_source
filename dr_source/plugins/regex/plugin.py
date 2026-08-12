@@ -34,6 +34,9 @@ class RegexAnalyzer(AnalyzerPlugin):
         # Collect and compile all relevant rules
         compiled_rules = []
         for vuln_type in all_vuln_types:
+            detector_severity = self.kb.get_detector_rules(vuln_type).get(
+                "severity", "MEDIUM"
+            )
             # Get general regex patterns for this vuln type
             general = self.kb.get_general_regex(vuln_type)
             for r in general:
@@ -42,7 +45,7 @@ class RegexAnalyzer(AnalyzerPlugin):
                         "id": r["id"],
                         "message": r["message"],
                         "pattern": re.compile(r["pattern"]),
-                        "severity": r.get("severity", "MEDIUM"),
+                        "severity": r.get("severity", detector_severity),
                         "type": vuln_type
                     })
                 except: pass
@@ -56,7 +59,7 @@ class RegexAnalyzer(AnalyzerPlugin):
                             "id": r["id"],
                             "message": r["message"],
                             "pattern": re.compile(r["pattern"]),
-                            "severity": r.get("severity", "MEDIUM"),
+                            "severity": r.get("severity", detector_severity),
                             "type": vuln_type
                         })
                     except: pass

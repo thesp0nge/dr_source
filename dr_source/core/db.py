@@ -13,8 +13,9 @@ class ScanDatabase:
         if project_name in {".", "..", ""}:
             project_name = "default_project"
         self.project_name = self._sanitize_project_name(project_name)
-        self.db_directory = os.path.join(
-            os.path.expanduser("~"), "dr_source", "scans", "dbs"
+        self.db_directory = os.environ.get(
+            "DR_SOURCE_DB_DIRECTORY",
+            os.path.join(os.path.expanduser("~"), "dr_source", "scans", "dbs"),
         )
         self.db_path = os.path.join(
             f"{self.db_directory}",

@@ -41,12 +41,14 @@ class TestDependencyAnalyzer(unittest.TestCase):
         self.assertIn(".txt", self.analyzer.get_supported_extensions())
         self.assertIn(".xml", self.analyzer.get_supported_extensions())
 
-    @patch("subprocess.run")
-    def test_finds_vulnerable_python_package(self, mock_run):
+    @patch("dr_source.plugins.dependency.plugin.shutil.which", return_value=None)
+    @patch("dr_source.plugins.dependency.plugin.subprocess.run")
+    def test_finds_vulnerable_python_package(self, mock_run, mock_which):
         """
         Tests that requirements.txt scanning works correctly when pip-audit finds vulns.
         """
-        # We need to mock TWO calls to subprocess.run now:
+        # Force the module fallback so the test always makes two calls,
+        # regardless of whether pip-audit is on the active environment's PATH:
         # 1. The version check (if pip-audit executable is not in PATH)
         # 2. The actual scan
         
