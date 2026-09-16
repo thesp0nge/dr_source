@@ -179,6 +179,32 @@ def test_java_ambiguous_project_target_is_not_simulated(tmp_path, monkeypatch, c
     assert "Ambiguous function 'runQuery': 2 candidates" in caplog.text
 
 
+def test_javascript_ambiguous_project_target_is_not_simulated(tmp_path, monkeypatch, caplog):
+    def load_javascript_plugin(scanner):
+        scanner.extension_map = {".js": [JavaScriptAstAnalyzer()]}
+
+    monkeypatch.setattr(Scanner, "load_plugins", load_javascript_plugin)
+    (tmp_path / "app.js").write_text(
+        "const value = req.query.cmd;\n"
+        "runCommand(value);\n",
+        encoding="utf-8",
+    )
+    helper_code = (
+        "const cp = require('child_process');\n"
+        "function runCommand(value) { cp.exec(value); }\n"
+    )
+    (tmp_path / "commands_a.js").write_text(helper_code, encoding="utf-8")
+    (tmp_path / "commands_b.js").write_text(helper_code, encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        scanner = Scanner(str(tmp_path))
+        scanner.scan()
+
+    assert len(scanner.project_index.find_candidates("runCommand", language="javascript")) == 2
+    assert scanner.all_findings == []
+    assert "Ambiguous function 'runCommand': 2 candidates" in caplog.text
+
+
 @pytest.mark.parametrize(
     "language, foreign_language",
     [

@@ -3,6 +3,8 @@ import os
 from typing import List, Dict, Any, Set, Optional
 from tree_sitter import Node
 
+from dr_source.core.resolution import Resolution, ResolutionStatus
+
 logger = logging.getLogger(__name__)
 
 class JavaScriptTaintVisitor:
@@ -105,6 +107,17 @@ class JavaScriptTaintVisitor:
         if name in self.sources or any(name.startswith(s) for s in self.sources): return "source", name
         return None, None
 
+    def _resolve_project_call(self, name: str) -> Resolution:
+        """Resolve a project function/member name using exact JS candidates.
+
+        Dotted names remain exact syntactic lookup keys. This helper does not
+        infer modules, receivers, aliases, or exports. Local declarations are
+        still handled by ``self.functions`` in ``visit``.
+        """
+        if self.project_index is None:
+            return Resolution.unresolved()
+        return self.project_index.resolve_unique(name, language="javascript")
+
     def visit(self, node: Node):
         if node is None: return
         if node.type == "function_declaration":
@@ -142,9 +155,25 @@ class JavaScriptTaintVisitor:
                 else:
                     f_def = self.functions.get(name)
                     if not f_def and self.project_index and self.depth < self.max_depth:
-                        g = self.project_index.find_function(name, language="javascript")
-                        if g and g.language == "javascript":
-                            self._simulate_call(node, g.node["node"], name, g.file_path, g.node["code"])
+                        resolution = self._resolve_project_call(name)
+                        if resolution.status is ResolutionStatus.AMBIGUOUS:
+                            logger.warning(
+                                "Ambiguous function %r: %d candidates; language=javascript; "
+                                "inter-file analysis skipped: %s",
+                                name,
+                                len(resolution.candidates),
+                                list(resolution.candidates),
+                            )
+                        if resolution.status is ResolutionStatus.RESOLVED and resolution.symbol is not None:
+                            definition = self.project_index.get_definition(resolution.symbol)
+                            if definition is not None and definition.language == "javascript":
+                                self._simulate_call(
+                                    node,
+                                    definition.node["node"],
+                                    name,
+                                    definition.file_path,
+                                    definition.node["code"],
+                                )
                     elif f_def: self._simulate_call(node, f_def, name, None, None)
 
         for child in node.children: self.visit(child)
