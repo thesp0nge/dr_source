@@ -44,6 +44,7 @@ class RecordingAnalyzer(AnalyzerPlugin):
     def __init__(self, extensions, accepted_names=None):
         self.extensions = extensions
         self.accepted_names = accepted_names
+        self.indexed = []
         self.analyzed = []
 
     @property
@@ -57,6 +58,9 @@ class RecordingAnalyzer(AnalyzerPlugin):
         if self.accepted_names is not None:
             return os.path.basename(file_path) in self.accepted_names
         return super().supports_file(file_path)
+
+    def index(self, file_path: str, project_index):
+        self.indexed.append(file_path)
 
     def analyze(self, file_path: str) -> List[Vulnerability]:
         self.analyzed.append(file_path)
@@ -85,6 +89,11 @@ class TestScanner(unittest.TestCase):
             scanner.extension_map = {".js": [analyzer]}
             scanner.scan()
 
+            self.assertIn(allowed_file, analyzer.indexed)
+            self.assertIn(allowed_file, analyzer.analyzed)
+            self.assertNotIn(ignored_file, analyzer.indexed)
+            self.assertNotIn(ignored_file, analyzer.analyzed)
+            self.assertEqual(analyzer.indexed, [allowed_file])
             self.assertEqual(analyzer.analyzed, [allowed_file])
             self.assertEqual(scanner.num_files_analyzed, 1)
 
