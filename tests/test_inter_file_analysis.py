@@ -140,6 +140,45 @@ def test_scanner_reports_ambiguous_cross_file_target(tmp_path, monkeypatch, capl
     assert str(vulnerable) in caplog.text
 
 
+def test_java_ambiguous_project_target_is_not_simulated(tmp_path, monkeypatch, caplog):
+    def load_java_plugin(scanner):
+        scanner.extension_map = {".java": [JavaAstAnalyzer()]}
+
+    monkeypatch.setattr(Scanner, "load_plugins", load_java_plugin)
+    (tmp_path / "Caller.java").write_text(
+        "import javax.servlet.http.HttpServletRequest;\n"
+        "import java.sql.Connection;\n"
+        "class Caller {\n"
+        "    void doGet(HttpServletRequest request, Connection conn) throws Exception {\n"
+        "        String id = request.getParameter(\"id\");\n"
+        "        String sql = \"SELECT * FROM users WHERE id = \" + id;\n"
+        "        helper.runQuery(sql, conn);\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    for filename in ("DatabaseHelper.java", "OtherHelper.java"):
+        (tmp_path / filename).write_text(
+            "import java.sql.Statement;\n"
+            "import java.sql.Connection;\n"
+            "class Helper {\n"
+            "    void runQuery(String query, Connection conn) throws Exception {\n"
+            "        Statement stmt = conn.createStatement();\n"
+            "        stmt.executeQuery(query);\n"
+            "    }\n"
+            "}\n",
+            encoding="utf-8",
+        )
+
+    with caplog.at_level(logging.WARNING):
+        scanner = Scanner(str(tmp_path))
+        scanner.scan()
+
+    assert len(scanner.project_index.find_candidates("runQuery", language="java")) == 2
+    assert scanner.all_findings == []
+    assert "Ambiguous function 'runQuery': 2 candidates" in caplog.text
+
+
 @pytest.mark.parametrize(
     "language, foreign_language",
     [

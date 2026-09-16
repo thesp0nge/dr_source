@@ -3,6 +3,7 @@ import os
 from typing import List, Dict, Any, Set, Optional
 from tree_sitter import Node
 
+from dr_source.core.resolution import Resolution, ResolutionStatus
 from .frameworks import SpringBootMapper, JakartaEEMapper, JaxRsMapper, HibernateMapper
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,17 @@ class TaintVisitor:
             if child.type == "identifier": return self.get_text(child)
         return ""
 
+    def _resolve_project_call(self, method_name: str) -> Resolution:
+        """Resolve a project method by Java name using the shared index.
+
+        Receiver, class, package, and overload semantics are intentionally
+        outside this Phase 3 boundary. Local methods continue to use
+        ``self.functions`` in ``visit``.
+        """
+        if self.project_index is None:
+            return Resolution.unresolved()
+        return self.project_index.resolve_unique(method_name, language="java")
+
     def visit(self, node: Node):
         if node is None: return
         if node.type in ["class_declaration", "program"]:
@@ -179,10 +191,22 @@ class TaintVisitor:
                 if not found_fw:
                     func_def = self.functions.get(method_name)
                     if not func_def and self.project_index and self.depth < self.max_depth:
-                        global_def = self.project_index.find_function(method_name, language="java")
-                        if global_def and global_def.language == "java":
-                            func_def, target_file, target_code = global_def.node["node"], global_def.file_path, global_def.node["code"]
-                            self._simulate_call(node, func_def, method_name, target_file, target_code)
+                        resolution = self._resolve_project_call(method_name)
+                        if resolution.status is ResolutionStatus.AMBIGUOUS:
+                            logger.warning(
+                                "Ambiguous function %r: %d candidates; language=java; "
+                                "inter-file analysis skipped: %s",
+                                method_name,
+                                len(resolution.candidates),
+                                list(resolution.candidates),
+                            )
+                        if resolution.status is ResolutionStatus.RESOLVED and resolution.symbol is not None:
+                            definition = self.project_index.get_definition(resolution.symbol)
+                            if definition is not None and definition.language == "java":
+                                func_def, target_file, target_code = (
+                                    definition.node["node"], definition.file_path, definition.node["code"]
+                                )
+                                self._simulate_call(node, func_def, method_name, target_file, target_code)
                     elif func_def: self._simulate_call(node, func_def, method_name, None, None)
 
         for child in node.children: self.visit(child)
