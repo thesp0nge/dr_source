@@ -6,10 +6,12 @@ from typing import List, Set, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 class PythonTaintVisitor(ast.NodeVisitor):
-    def __init__(self, source_list: List[str], sink_list: List[Any], sanitizer_list: List[str], project_index: Optional[Any] = None, depth: int = 0, structural_analysis: bool = True):
+    def __init__(self, source_list: List[str], sink_list: List[Any], sanitizer_list: List[str], project_index: Optional[Any] = None, depth: int = 0, structural_analysis: bool = True, current_file: Optional[str] = None, python_context: Optional[Any] = None):
         self.sources = set(source_list)
         self.sanitizers = set(s.split(".")[-1] for s in sanitizer_list)
         self.project_index = project_index
+        self.current_file = current_file
+        self.python_context = python_context
         self.depth = depth
         self.max_depth = 3
         self.structural_analysis = structural_analysis
@@ -186,7 +188,42 @@ class PythonTaintVisitor(ast.NodeVisitor):
         else:
             f_def = self.functions.get(fn)
             if not f_def and self.project_index and self.depth < self.max_depth:
-                g = self.project_index.find_function(fn, language="python")
+                g = None
+                t_file = None
+                target_name = fn
+                explicit_binding = False
+                if self.python_context and self.current_file:
+                    t_file, bound_name, explicit_binding = self.python_context.resolve_binding(
+                        self.current_file, fn
+                    )
+                    target_name = bound_name or fn
+                if explicit_binding:
+                    if t_file is None or target_name == fn and "." in fn:
+                        logger.warning(
+                            "Unsupported or unresolved Python import binding for %s in %s",
+                            fn,
+                            self.current_file,
+                        )
+                    else:
+                        candidates = [
+                            candidate
+                            for candidate in self.project_index.find_candidates(
+                                target_name, language="python"
+                            )
+                            if os.path.normpath(os.path.abspath(candidate.file_path))
+                            == os.path.normpath(os.path.abspath(t_file))
+                        ]
+                        if len(candidates) == 1:
+                            g = candidates[0]
+                        else:
+                            logger.warning(
+                                "Ambiguous or unresolved Python symbol %r in module %r: %d candidates",
+                                target_name,
+                                self.python_context.file_modules.get(t_file, "unknown"),
+                                len(candidates),
+                            )
+                else:
+                    g = self.project_index.find_function(fn, language="python")
                 if g and g.language == "python": f_def, t_file = g.node, g.file_path
                 if f_def: self._simulate_call(node, f_def, fn, t_file)
         self.generic_visit(node)
@@ -205,7 +242,15 @@ class PythonTaintVisitor(ast.NodeVisitor):
                         break
         if tainted:
             if t_file:
-                v = PythonTaintVisitor(list(self.sources), [{"name": n, "args": a} for n, a in self.sinks.items()], list(self.sanitizers), self.project_index, self.depth + 1)
+                v = PythonTaintVisitor(
+                    list(self.sources),
+                    [{"name": n, "args": a} for n, a in self.sinks.items()],
+                    list(self.sanitizers),
+                    self.project_index,
+                    self.depth + 1,
+                    current_file=t_file,
+                    python_context=self.python_context,
+                )
                 v.scopes = [tainted]; v.visit(f_def); self.vulnerabilities.extend(v.vulnerabilities)
             else:
                 self.scopes.append(tainted); 

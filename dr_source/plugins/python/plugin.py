@@ -1,9 +1,11 @@
 import ast
 import logging
+import os
 from typing import Any, List
 from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
 from .taint_visitor import PythonTaintVisitor
+from .project_context import PythonProjectContext
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +13,7 @@ class PythonAstAnalyzer(AnalyzerPlugin):
     def __init__(self):
         self.kb = KnowledgeBaseLoader()
         self.project_index = None
+        self.python_context = None
 
     @property
     def name(self) -> str:
@@ -21,6 +24,10 @@ class PythonAstAnalyzer(AnalyzerPlugin):
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as source:
                 tree = ast.parse(source.read(), filename=file_path)
+            if self.python_context is None:
+                root = project_index.project_root or os.path.dirname(os.path.abspath(file_path))
+                self.python_context = PythonProjectContext(root)
+            self.python_context.register_file(file_path, tree)
             for node in tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     project_index.register_function(
@@ -40,7 +47,9 @@ class PythonAstAnalyzer(AnalyzerPlugin):
             all_vuln_types = self.kb.get_all_vuln_types()
             
             # 1. Structural Analysis (Perform once per file)
-            structural_visitor = PythonTaintVisitor([], [], [])
+            structural_visitor = PythonTaintVisitor(
+                [], [], [], current_file=file_path, python_context=self.python_context
+            )
             structural_visitor.visit(tree)
             for v in structural_visitor.vulnerabilities:
                 findings.append(Vulnerability(
@@ -68,6 +77,8 @@ class PythonAstAnalyzer(AnalyzerPlugin):
                     sinks,
                     sanitizers,
                     project_index=self.project_index,
+                    current_file=file_path,
+                    python_context=self.python_context,
                     structural_analysis=False,
                 )
                 

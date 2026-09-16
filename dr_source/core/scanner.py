@@ -23,7 +23,8 @@ class Scanner:
         self.target_path = target_path
         self.timeout = timeout
         self.db = ScanDatabase(project_name=target_path)
-        self.project_index = ProjectIndex()
+        analysis_root = self.target_path if os.path.isdir(self.target_path) else os.path.dirname(self.target_path)
+        self.project_index = ProjectIndex(project_root=os.path.abspath(analysis_root or os.curdir))
 
         # This will hold { ".java": [JavaPlugin], ".*": [RegexPlugin], ... }
         self.extension_map: Dict[str, List[AnalyzerPlugin]] = {}

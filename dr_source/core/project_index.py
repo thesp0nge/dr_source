@@ -46,7 +46,8 @@ class ProjectIndex:
     A global index of all functions and classes discovered across the project.
     Used for inter-file taint analysis.
     """
-    def __init__(self) -> None:
+    def __init__(self, project_root: Optional[str] = None) -> None:
+        self.project_root = os.path.normpath(os.path.abspath(project_root)) if project_root else None
         self.functions: Dict[SymbolId, FunctionDefinition] = {}
         # Nested buckets support both (language, name) and legacy name queries.
         self._by_name: Dict[str, Dict[str, Set[SymbolId]]] = {}

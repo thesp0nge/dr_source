@@ -1,11 +1,31 @@
 # Python import resolution: Phase 3 investigation
 
-Status: Characterization and proposed minimum scope; no production changes.
+Status: Phase 3 implemented for the limited supported import forms.
 
 This note complements [ADR 0001](adr/0001-project-index-symbol-identity.md).
-The tests in `tests/test_python_import_resolution.py` assert current behavior;
-their missing findings are known analysis gaps, not evidence of safe code.
-There are no skipped tests or expected-failure markers.
+The tests in `tests/test_python_import_resolution.py` cover supported resolution,
+safe-module negatives, same-target ambiguity, unsupported aliases, module mapping,
+and recursive callee context. There are no skipped tests or expected-failure
+markers.
+
+## Phase 3 implementation
+
+`Scanner` now gives `ProjectIndex` a normalized absolute analysis root: the target
+directory for directory scans, or the target's parent for a single-file scan. It
+does not expand a single-file scan to siblings. `PythonAstAnalyzer` owns a
+per-scanner `PythonProjectContext` that maps conventional source paths to modules,
+records top-level unconditional imports, and resolves supported bindings before
+querying Python candidates. `PythonTaintVisitor` receives the current file and
+context; recursive visitors switch to the callee file's context.
+
+Supported bindings are unaliased `from module import symbol` and `import module`.
+The target module must be indexed under the selected root. Candidates are filtered
+to Python definitions in that target file; zero, one, and multiple candidates
+remain distinct outcomes. Unsupported aliases are explicitly unresolved and do
+not fall through to global name lookup. External imports not represented in the
+project context continue to support existing source/sink modeling.
+
+The generic `ProjectIndex` remains unaware of Python AST or import semantics.
 
 ## Facts established by the current implementation
 
