@@ -3,6 +3,8 @@ import logging
 import os
 from typing import List, Set, Dict, Any, Optional
 
+from dr_source.core.resolution import Resolution, ResolutionReason, ResolutionStatus
+
 logger = logging.getLogger(__name__)
 
 class PythonTaintVisitor(ast.NodeVisitor):
@@ -162,6 +164,93 @@ class PythonTaintVisitor(ast.NodeVisitor):
             return "source", name
         return None, None
 
+    def _resolve_project_call(self, node: ast.Call) -> Resolution:
+        """Resolve a project call using Python context and indexed candidates.
+
+        Local functions are intentionally handled by ``self.functions`` in
+        ``visit_Call``. This method only decides whether an inter-file target
+        can be selected; it does not perform source, sink, or sanitizer logic.
+        """
+        fn = self._get_full_call_name(node)
+        if self.project_index is None:
+            return Resolution.unresolved()
+
+        target_file = None
+        target_name = fn
+        explicit_binding = False
+        if self.python_context and self.current_file:
+            target_file, bound_name, explicit_binding = self.python_context.resolve_binding(
+                self.current_file, fn
+            )
+            target_name = bound_name or fn
+
+        if not explicit_binding:
+            return self.project_index.resolve_unique(fn, language="python")
+
+        if target_file is None:
+            binding = self.python_context.binding(self.current_file, fn.split(".")[0])
+            reason = (
+                ResolutionReason.UNSUPPORTED_BINDING
+                if binding is not None and not binding.supported
+                else ResolutionReason.UNSUPPORTED_CALL_FORM
+            )
+            return Resolution.unsupported(reason)
+
+        candidates = [
+            candidate
+            for candidate in self.project_index.find_candidates(target_name, language="python")
+            if os.path.normpath(os.path.abspath(candidate.file_path))
+            == os.path.normpath(os.path.abspath(target_file))
+        ]
+        candidate_ids = tuple(candidate.symbol_id for candidate in candidates)
+        if len(candidates) == 1:
+            return Resolution.resolved(candidate_ids[0], candidate_ids)
+        if len(candidates) > 1:
+            return Resolution.ambiguous(candidate_ids)
+        return Resolution.unresolved(reason=ResolutionReason.EXPLICIT_TARGET_NOT_FOUND)
+
+    def _log_project_resolution(self, name: str, resolution: Resolution) -> None:
+        """Retain the existing resolver warnings while decisions use statuses."""
+        binding = None
+        bound_name = None
+        explicit = False
+        if self.python_context and self.current_file:
+            _, bound_name, explicit = self.python_context.resolve_binding(
+                self.current_file, name
+            )
+            binding = self.python_context.binding(self.current_file, name.split(".")[0])
+        diagnostic_name = bound_name or name
+        if resolution.status is ResolutionStatus.UNSUPPORTED:
+            logger.warning(
+                "Unsupported or unresolved Python import binding for %s in %s",
+                name,
+                self.current_file,
+            )
+        elif resolution.status is ResolutionStatus.AMBIGUOUS:
+            if explicit:
+                module = binding.module_name if binding else "unknown"
+                logger.warning(
+                    "Ambiguous or unresolved Python symbol %r in module %r: %d candidates",
+                    diagnostic_name,
+                    module,
+                    len(resolution.candidates),
+                )
+            else:
+                logger.warning(
+                    "Ambiguous function %r: %d candidates; language=python; "
+                    "inter-file analysis skipped: %s",
+                    name,
+                    len(resolution.candidates),
+                    list(resolution.candidates),
+                )
+        elif resolution.reason is ResolutionReason.EXPLICIT_TARGET_NOT_FOUND:
+            module = binding.module_name if binding else "unknown"
+            logger.warning(
+                "Ambiguous or unresolved Python symbol %r in module %r: 0 candidates",
+                diagnostic_name,
+                module,
+            )
+
     def visit_Call(self, node: ast.Call):
         fn = self._get_full_call_name(node)
         match_name = None
@@ -188,44 +277,13 @@ class PythonTaintVisitor(ast.NodeVisitor):
         else:
             f_def = self.functions.get(fn)
             if not f_def and self.project_index and self.depth < self.max_depth:
-                g = None
-                t_file = None
-                target_name = fn
-                explicit_binding = False
-                if self.python_context and self.current_file:
-                    t_file, bound_name, explicit_binding = self.python_context.resolve_binding(
-                        self.current_file, fn
-                    )
-                    target_name = bound_name or fn
-                if explicit_binding:
-                    if t_file is None or target_name == fn and "." in fn:
-                        logger.warning(
-                            "Unsupported or unresolved Python import binding for %s in %s",
-                            fn,
-                            self.current_file,
-                        )
-                    else:
-                        candidates = [
-                            candidate
-                            for candidate in self.project_index.find_candidates(
-                                target_name, language="python"
-                            )
-                            if os.path.normpath(os.path.abspath(candidate.file_path))
-                            == os.path.normpath(os.path.abspath(t_file))
-                        ]
-                        if len(candidates) == 1:
-                            g = candidates[0]
-                        else:
-                            logger.warning(
-                                "Ambiguous or unresolved Python symbol %r in module %r: %d candidates",
-                                target_name,
-                                self.python_context.file_modules.get(t_file, "unknown"),
-                                len(candidates),
-                            )
-                else:
-                    g = self.project_index.find_function(fn, language="python")
-                if g and g.language == "python": f_def, t_file = g.node, g.file_path
-                if f_def: self._simulate_call(node, f_def, fn, t_file)
+                resolution = self._resolve_project_call(node)
+                self._log_project_resolution(fn, resolution)
+                if resolution.status is ResolutionStatus.RESOLVED and resolution.symbol is not None:
+                    definition = self.project_index.get_definition(resolution.symbol)
+                    if definition is not None and definition.language == "python":
+                        f_def, t_file = definition.node, definition.file_path
+                        self._simulate_call(node, f_def, fn, t_file)
         self.generic_visit(node)
 
     def _simulate_call(self, node: ast.Call, f_def: Any, fn: str, t_file: Optional[str] = None):

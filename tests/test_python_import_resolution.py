@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from dr_source.core.project_index import ProjectIndex
 from dr_source.core.scanner import Scanner
+from dr_source.core.resolution import ResolutionReason, ResolutionStatus
 from dr_source.plugins.python.plugin import PythonAstAnalyzer
+from dr_source.plugins.python.project_context import PythonProjectContext
 from dr_source.plugins.python.taint_visitor import PythonTaintVisitor
 
 
@@ -194,3 +197,77 @@ def test_imported_module_with_multiple_same_name_definitions_remains_ambiguous(
         )
     assert scanner.all_findings == []
     assert any("Ambiguous or unresolved Python symbol 'execute'" in message for message in caplog.messages)
+
+
+def _direct_python_resolution(tmp_path, imports, call, service_sources):
+    tmp_path.mkdir()
+    app_path = tmp_path / "app.py"
+    app_path.write_text(imports + "\n" + call + "\n", encoding="utf-8")
+    index = ProjectIndex(str(tmp_path))
+    context = PythonProjectContext(str(tmp_path))
+    for filename, source in {"app.py": imports, **service_sources}.items():
+        path = tmp_path / filename
+        if filename != "app.py":
+            path.write_text(source, encoding="utf-8")
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        context.register_file(str(path), tree)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                index.register_function(node.name, str(path), node, "python", declaration_position=(node.lineno, node.col_offset))
+    visitor = PythonTaintVisitor(
+        [], [], [], index, current_file=str(app_path), python_context=context,
+        structural_analysis=False,
+    )
+    return visitor, ast.parse(call, mode="eval").body
+
+
+def test_python_project_resolution_returns_structured_outcomes(tmp_path):
+    cases = [
+        ("", "execute(value)", {"service_a.py": "def execute(value):\n    return value\n"}, ResolutionStatus.RESOLVED, ResolutionReason.NONE),
+        ("", "execute(value)", {
+            "service_a.py": "def execute(value):\n    return value\n",
+            "service_b.py": "def execute(value):\n    return value\n",
+        }, ResolutionStatus.AMBIGUOUS, ResolutionReason.MULTIPLE_CANDIDATES),
+        ("from service_a import execute", "execute(value)", {"service_a.py": "def execute(value):\n    return value\n"}, ResolutionStatus.RESOLVED, ResolutionReason.NONE),
+        ("from service_a import execute", "execute(value)", {"service_a.py": "value = 1\n"}, ResolutionStatus.UNRESOLVED, ResolutionReason.EXPLICIT_TARGET_NOT_FOUND),
+        ("import service_a", "service_a.execute(value)", {"service_a.py": "def execute(value):\n    return value\n"}, ResolutionStatus.RESOLVED, ResolutionReason.NONE),
+        ("from service_a import execute as run", "run(value)", {"service_a.py": "def execute(value):\n    return value\n"}, ResolutionStatus.UNSUPPORTED, ResolutionReason.UNSUPPORTED_BINDING),
+        ("import service_a as svc", "svc.execute(value)", {"service_a.py": "def execute(value):\n    return value\n"}, ResolutionStatus.UNSUPPORTED, ResolutionReason.UNSUPPORTED_BINDING),
+        ("", "missing(value)", {"service_a.py": "value = 1\n"}, ResolutionStatus.UNRESOLVED, ResolutionReason.NO_CANDIDATES),
+    ]
+    for index, (imports, call, sources, status, reason) in enumerate(cases):
+        visitor, node = _direct_python_resolution(tmp_path / str(index), imports, call, sources)
+        result = visitor._resolve_project_call(node)
+        assert result.status is status
+        assert result.reason is reason
+        if status is ResolutionStatus.RESOLVED:
+            assert result.symbol is not None
+        else:
+            assert result.symbol is None
+
+
+def test_python_project_resolution_ambiguity_is_registration_order_independent(tmp_path):
+    results = []
+    for index, names in enumerate((("service_a.py", "service_b.py"), ("service_b.py", "service_a.py"))):
+        root = tmp_path / str(index)
+        root.mkdir()
+        index_obj = ProjectIndex(str(root))
+        context = PythonProjectContext(str(root))
+        app = root / "app.py"
+        app.write_text("", encoding="utf-8")
+        context.register_file(str(app), ast.parse(""))
+        for name in names:
+            path = root / name
+            path.write_text("def execute(value):\n    return value\n", encoding="utf-8")
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            context.register_file(str(path), tree)
+            node = tree.body[0]
+            index_obj.register_function("execute", str(path), node, "python", declaration_position=(1, 0))
+        visitor = PythonTaintVisitor([], [], [], index_obj, current_file=str(app), python_context=context, structural_analysis=False)
+        result = visitor._resolve_project_call(ast.parse("execute(value)", mode="eval").body)
+        results.append(result)
+    assert results[0].status is results[1].status is ResolutionStatus.AMBIGUOUS
+    assert results[0].reason is results[1].reason is ResolutionReason.MULTIPLE_CANDIDATES
+    assert [Path(symbol.file_path).name for symbol in results[0].candidates] == [
+        Path(symbol.file_path).name for symbol in results[1].candidates
+    ]
