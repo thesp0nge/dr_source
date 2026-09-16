@@ -51,7 +51,8 @@ class JavaScriptAstAnalyzer(AnalyzerPlugin):
                             func_name, 
                             file_path, 
                             {"node": node, "code": code_bytes}, 
-                            "javascript"
+                            "javascript",
+                            declaration_position=(node.start_point[0] + 1, node.start_point[1]),
                         )
                 for child in node.children:
                     find_functions(child)

@@ -24,7 +24,8 @@ class PythonAstAnalyzer(AnalyzerPlugin):
             for node in tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     project_index.register_function(
-                        node.name, file_path, node, "python"
+                        node.name, file_path, node, "python",
+                        declaration_position=(node.lineno, node.col_offset),
                     )
         except (OSError, SyntaxError) as error:
             logger.error(f"Error indexing Python file {file_path}: {error}")

@@ -7,6 +7,35 @@ Date: 2026-09-16
 Scope: Architectural recommendation only. This ADR does not implement an API,
 change analysis semantics, or authorize a full semantic-analysis rewrite.
 
+### Phase 1 implementation note
+
+Phase 1 now stores `SymbolId -> FunctionDefinition`. Frozen IDs include language,
+lexically normalized supplied file path, name, and an optional declaration
+position (one-based line, zero-based UTF-8 byte column). Owner and signature remain
+`None`. Python, Java, and JavaScript indexers supply source positions without
+extracting ownership or resolving overloads. Original AST/source payloads and
+definition file paths are preserved.
+
+`find_candidates(name, language=None)` returns all matching definitions, ordered
+by identity file path, position, language, and name. A nested name/language index
+supports both filtered queries and the temporary name-only compatibility query.
+`find_function(name)` returns the sole candidate or `None`; multiple candidates
+produce a warning listing their identities and stating that inter-file analysis
+is skipped. This intentionally replaces arbitrary last-writer selection and can
+remove findings that depended on that selection. Existing visitors still use
+name-only lookup, including its cross-language ambiguity, until Phase 2.
+
+The four-argument registration form remains available for unique declarations.
+Re-registering the same payload object under the same ID is idempotent; a different
+payload for that ID raises `ValueError` instead of overwriting it. Use distinct
+source positions for different declarations and a fresh index for a new parse or
+changed source snapshot. Incremental source-unit replacement is not implemented.
+
+Project-relative path ownership remains a future integration step: Phase 1 does
+not change scanner construction or infer a project root. Callers must use a
+consistent path basis. IDs are not promised to survive checkout relocation or
+source edits. Structured resolution results and semantic binding remain deferred.
+
 ## Context
 
 `dr_source/core/project_index.py` stores
