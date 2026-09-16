@@ -102,21 +102,26 @@ class ProjectIndex:
         )
         return [self.functions[symbol] for symbol in ordered_ids]
 
-    def find_function(self, name: str) -> Optional[FunctionDefinition]:
-        """Legacy lookup: return only a unique candidate across all languages.
+    def find_function(
+        self, name: str, *, language: Optional[str] = None
+    ) -> Optional[FunctionDefinition]:
+        """Return only a unique candidate in the requested language, if supplied.
 
+        Omitting language preserves the legacy cross-language lookup semantics.
         Missing names return None. Ambiguous names return None with a warning
         so skipped inter-file simulation cannot masquerade as complete analysis.
-        Taint visitors will adopt language-aware lookup in a later phase.
+        A unique name candidate is not proof of semantic call binding.
         """
-        candidates = self.find_candidates(name)
+        candidates = self.find_candidates(name, language=language)
         if len(candidates) == 1:
             return candidates[0]
         if candidates:
             logger.warning(
-                "Ambiguous function %r: %d candidates; inter-file analysis skipped: %s",
+                "Ambiguous function %r: %d candidates; language=%s; "
+                "inter-file analysis skipped: %s",
                 name,
                 len(candidates),
+                language if language is not None else "all",
                 [candidate.symbol_id for candidate in candidates],
             )
         return None

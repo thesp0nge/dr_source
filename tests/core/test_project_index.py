@@ -138,3 +138,40 @@ def test_conflicting_identity_is_rejected_without_overwriting():
         index.register_function("execute", "service.py", object(), "python")
     assert index.find_function("execute").node is original
     assert len(index.functions) == 1
+
+
+@pytest.mark.parametrize("language", ["python", "java", "javascript"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
+def test_scoped_unique_lookup_and_ambiguity_diagnostics(language, reverse, caplog):
+    index = ProjectIndex()
+    foreign_language = "javascript" if language == "python" else "python"
+    foreign_node = object()
+    index.register_function("execute", "foreign.source", foreign_node, foreign_language)
+    assert index.find_function("execute", language=language) is None
+    assert index.find_function("missing", language=language) is None
+
+    target_node = object()
+    index.register_function("execute", "a.source", target_node, language)
+    assert index.find_function("execute", language=language).node is target_node
+    # Preserve the old unscoped API: two languages are still ambiguous there.
+    assert index.find_function("execute") is None
+
+    registrations = [
+        ("execute", "a.source", target_node, language),
+        ("execute", "b.source", object(), language),
+        ("execute", "foreign.source", foreign_node, foreign_language),
+    ]
+    index = ProjectIndex()
+    for entry in reversed(registrations) if reverse else registrations:
+        index.register_function(*entry)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="dr_source.core.project_index"):
+        assert index.find_function("execute", language=language) is None
+    assert len(caplog.messages) == 1
+    message = caplog.messages[0]
+    assert "Ambiguous function 'execute': 2 candidates" in message
+    assert f"language={language}" in message
+    assert "inter-file analysis skipped" in message
+    assert message.index("a.source") < message.index("b.source")
+    assert "foreign.source" not in message
+    assert f"language='{foreign_language}'" not in message

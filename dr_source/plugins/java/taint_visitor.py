@@ -179,7 +179,7 @@ class TaintVisitor:
                 if not found_fw:
                     func_def = self.functions.get(method_name)
                     if not func_def and self.project_index and self.depth < self.max_depth:
-                        global_def = self.project_index.find_function(method_name)
+                        global_def = self.project_index.find_function(method_name, language="java")
                         if global_def and global_def.language == "java":
                             func_def, target_file, target_code = global_def.node["node"], global_def.file_path, global_def.node["code"]
                             self._simulate_call(node, func_def, method_name, target_file, target_code)

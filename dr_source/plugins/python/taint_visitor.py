@@ -186,7 +186,7 @@ class PythonTaintVisitor(ast.NodeVisitor):
         else:
             f_def = self.functions.get(fn)
             if not f_def and self.project_index and self.depth < self.max_depth:
-                g = self.project_index.find_function(fn)
+                g = self.project_index.find_function(fn, language="python")
                 if g and g.language == "python": f_def, t_file = g.node, g.file_path
                 if f_def: self._simulate_call(node, f_def, fn, t_file)
         self.generic_visit(node)

@@ -142,7 +142,7 @@ class JavaScriptTaintVisitor:
                 else:
                     f_def = self.functions.get(name)
                     if not f_def and self.project_index and self.depth < self.max_depth:
-                        g = self.project_index.find_function(name)
+                        g = self.project_index.find_function(name, language="javascript")
                         if g and g.language == "javascript":
                             self._simulate_call(node, g.node["node"], name, g.file_path, g.node["code"])
                     elif f_def: self._simulate_call(node, f_def, name, None, None)

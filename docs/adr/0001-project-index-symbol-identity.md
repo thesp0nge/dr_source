@@ -22,8 +22,8 @@ supports both filtered queries and the temporary name-only compatibility query.
 `find_function(name)` returns the sole candidate or `None`; multiple candidates
 produce a warning listing their identities and stating that inter-file analysis
 is skipped. This intentionally replaces arbitrary last-writer selection and can
-remove findings that depended on that selection. Existing visitors still use
-name-only lookup, including its cross-language ambiguity, until Phase 2.
+remove findings that depended on that selection. At the end of Phase 1, visitors
+still used name-only lookup, including its cross-language ambiguity.
 
 The four-argument registration form remains available for unique declarations.
 Re-registering the same payload object under the same ID is idempotent; a different
@@ -35,6 +35,28 @@ Project-relative path ownership remains a future integration step: Phase 1 does
 not change scanner construction or infer a project root. Callers must use a
 consistent path basis. IDs are not promised to survive checkout relocation or
 source edits. Structured resolution results and semantic binding remain deferred.
+
+### Phase 2 implementation note
+
+Python, Java, and JavaScript visitors now supply their language to
+`find_function(name, language=...)`. This backwards-compatible keyword refines the
+existing unique-candidate wrapper over `find_candidates(name, language=...)`;
+there is no separate lookup mechanism or new structured resolution model.
+
+Zero same-language candidates return `None`, exactly one returns that definition,
+and multiple candidates return `None` with a warning identifying the language and
+only its candidates in deterministic order. There is no cross-language fallback.
+Unscoped `find_function(name)` remains available with its Phase 1 semantics.
+Local-function behavior, depth limits, and defensive payload-language checks are
+unchanged. Singleton name matches remain compatibility assumptions, not proof of
+semantic binding.
+
+Python and JavaScript dotted names are still looked up exactly as supplied;
+`service.execute` is not mapped to a module or a bare `execute` definition. Java
+still supplies a bare method name without receiver, package, class, or overload
+resolution. Imports, aliases, modules, ownership, receivers, types, and signatures
+remain future work. Same-language ambiguity still skips inter-file simulation
+with a diagnostic; unrelated languages no longer introduce that ambiguity.
 
 ## Context
 
