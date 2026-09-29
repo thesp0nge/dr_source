@@ -5,6 +5,7 @@ import os
 import json
 
 from tabulate import tabulate
+from pathlib import Path
 
 from dr_source.core.codebase import Codebase
 from dr_source.core.scanner import Scanner
@@ -205,8 +206,18 @@ def main(
 
     # 3. Reporting logic (now works with 'results_list_of_dicts')
     if export:
+        
         project_name = scanner.db.project_name  # Get sanitized name
-        out_file = output if output else f"{project_name}_scan_{scan_id}.{export}"
+        root_directory = Path.home() / "dr_source" / "scans"
+        out_file = ""
+
+        if output:
+            out_file = output
+        else:
+            reports_directory = root_directory / "reports"
+            reports_directory.mkdir(parents=True, exist_ok=True)
+
+            out_file = reports_directory / f"{project_name}_scan_{scan_id}.{export}"
 
         if export == "sarif":
             reporter = SARIFReport()
@@ -226,12 +237,13 @@ def main(
         elif export == "ascii":
             reporter = ASCIIReport()
             report_content = reporter.generate(results_list_of_dicts)
-            if output:
+            if out_file:
                 with open(out_file, "w") as f:
                     f.write(report_content)
                 click.echo(f"Results exported to {out_file}")
             else:
                 click.echo(report_content)
+
     # 4. Standard console output
     severity_colors = {
         "CRITICAL": "bright_red",
