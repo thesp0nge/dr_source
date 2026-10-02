@@ -1,15 +1,21 @@
 # Resolution diagnostics denominator investigation
 
 Audit of baseline `3fc9fb5e1d9c01408a71b419f0bc68c18684cf01` (152 tests),
-using DRSource 0.171.0 and Python 3.9.6. This investigation changes no production
-code, resolution decisions, diagnostic schema, security knowledge, or findings.
+using DRSource 0.171.0 and Python 3.9.6. The original investigation changed no
+production code. Tables and snapshot below now reflect a source-span identity
+correction based on baseline `6933aa0c79ab5444e8794bd393f339d8ef1c6525` (154 tests).
+Resolution decisions, recording boundaries, security knowledge, finding output,
+and semantic classifications are unchanged.
 
 ## Current semantics
 
 `total_project_resolution_sites` counts unique **recorded resolver-site
 identities**, not all calls, all project calls, or understood application calls.
 An event is emitted immediately after the existing project resolver returns.
-Identity is `(language, normalized file, line, column, syntactic call name)`.
+Identity is `(language, normalized file, line, column, end_line, end_column,
+syntactic call name)`. It spans the complete call expression, with one-based lines,
+zero-based UTF-8 byte columns, and an exclusive end. Unavailable coordinates remain
+`None` as a deterministic fallback; conflicting same-identity decisions still fail.
 Equivalent revisits across detector categories and recursive simulation count
 once. Status/reason/candidates describe the existing decision, not the reason
 for invoking project lookup or a proof that the target belongs to the project.
@@ -20,9 +26,29 @@ not stop the subsequent call traversal. Local handling and depth guards can
 prevent attempts; neither constitutes a comprehensive inventory of local calls.
 Python's structural pass has no project index and produces no such events.
 
-One limitation discovered here: distinct nested JavaScript calls can share an
-identity when their extracted name is empty and their start coordinates are
-identical. Thus even “unique call sites” needs qualification (see Noise sources).
+The original audit found that distinct nested JavaScript calls shared an identity
+when their extracted name and start coordinates matched. Complete source spans
+now distinguish these calls without changing their names or resolver decisions.
+
+## Identity correction rerun
+
+The same six scans now produce **183 events instead of 180**. Python stays at 91
+and Java at 39; JavaScript increases from 50 to 53. The difference is exactly
+three restored unresolved/`NO_CANDIDATES`, zero-candidate JavaScript call sites:
+
+| Fixture under `tests/test_code/javascript/` | Shared start | Distinct exclusive ends | Previous identities | Corrected identities |
+| --- | --- | --- | ---: | ---: |
+| `crypto_tests.js:5`, `.update(data).digest('hex')` chain | (5, 11) | (5, 48), (5, 62) | 1 unnamed | 2 unnamed |
+| `crypto_tests.js:10`, `.update(data).digest('hex')` chain | (10, 11) | (10, 51), (10, 65) | 1 unnamed | 2 unnamed |
+| `final_kb_tests.js:17`, `.toString(36).substring(7)` chain | (17, 18) | (17, 44), (17, 57) | 1 unnamed | 2 unnamed |
+
+All previous event payloads are preserved when projected onto the old identity;
+only those three identities split. The added rows inherit the original B
+classification and evidence; no event is reinterpreted. The four resolved sites,
+all candidate identities, 51 findings, and empty warning/error lists are
+unchanged. The axios `.then(...)` chain still contributes one unnamed call.
+The JavaScript regression verifies three calls on `crypto_tests.js:5` now yield
+three events, including the unchanged named `crypto.createHash` call.
 
 ## Fixture methodology
 
@@ -35,9 +61,9 @@ language analyzers, and the unmodified factory knowledge base:
 | `inter_file/python/` | 2 | 4 | 1 | 3 | 1 |
 | `java/` | 11 | 35 | 0 | 35 | 20 |
 | `inter_file/java/` | 2 | 4 | 1 | 3 | 1 |
-| `javascript/` | 6 | 42 | 0 | 42 | 9 |
+| `javascript/` | 6 | 45 | 0 | 45 | 9 |
 | `inter_file/javascript/` | 2 | 8 | 1 | 7 | 1 |
-| **Total** | **35** | **180** | **4** | **176** | **51** |
+| **Total** | **35** | **183** | **4** | **179** | **51** |
 
 Each scan loads only its language's registered analyzer through controlled entry
 points. Scanner preparation, routing, indexing, traversal, and analysis remain
@@ -62,10 +88,10 @@ PYTHONPATH=. python tests/tools/audit_resolution_diagnostics.py > /tmp/resolutio
 ```
 
 The investigation-only helper captures each event's language, repository-relative
-file, line, column, call name, status, reason, candidate count/identities, and
+file, start/end line and column, call name, status, reason, candidate count/identities, and
 source line. It also captures Python binding facts and aggregates by
 `(language, status, reason, call_name)`. It does not classify calls automatically
-or modify production reporting. The complete manually reviewed 180-site snapshot
+or modify production reporting. The complete 183-site snapshot, retaining the original manual classifications,
 is [resolution-diagnostics-denominator-events.tsv](resolution-diagnostics-denominator-events.tsv).
 Its A/B/C annotations are fixture-specific observations, not an API allowlist.
 
@@ -79,10 +105,10 @@ PyYAML 6.0.3. Factory KB SHA-256:
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Python | 91 | 2 | 89 | 0 | 0 | 2 | 89 |
 | Java | 39 | 1 | 38 | 0 | 0 | 1 | 38 |
-| JavaScript | 50 | 1 | 49 | 0 | 0 | 1 | 49 |
+| JavaScript | 53 | 1 | 52 | 0 | 0 | 1 | 52 |
 
 Reasons are exactly `NONE` for the four resolved sites and `NO_CANDIDATES` for
-all 176 unresolved sites. `MULTIPLE_CANDIDATES`, `EXPLICIT_TARGET_NOT_FOUND`,
+all 179 unresolved sites. `MULTIPLE_CANDIDATES`, `EXPLICIT_TARGET_NOT_FOUND`,
 `UNSUPPORTED_BINDING`, and `UNSUPPORTED_CALL_FORM` do not occur in these trees.
 Their absence is a corpus limitation, not evidence that these outcomes are
 unimportant. Existing Phase 2 tests exercise them through controlled real scans.
@@ -93,7 +119,7 @@ Common names (counts are sites, never raw traversal attempts):
 | --- | --- |
 | Python | `app.route` 12; `request.args.get` 11; `Flask` 6; `os.system` 5; `sqlite3.connect`, `cursor.execute`, `str` 4 each; `HttpResponse` 3; `print` 2; `logging.info` 1 |
 | Java | `executeQuery` 9; `getParameter` 7; `createStatement` 4; `getInstance` 3; `readObject`, `getResultList`, `println` 2 each; `prepareStatement`, `setString`, `runQuery` 1 each |
-| JavaScript | `require` 12; `res.send` 8; `express`, `app.get` 6 each; empty name 4; `console.log` 3; `crypto.createHash`, `app.post` 2 each; `runCommand`, `cp.exec` 1 each |
+| JavaScript | `require` 12; `res.send` 8; `express`, `app.get` 6 each; empty name 7; `console.log` 3; `crypto.createHash`, `app.post` 2 each; `runCommand`, `cp.exec` 1 each |
 
 Every name/status/reason combination is reproducible in the helper's JSON
 `aggregates`; the table intentionally shows the common/architecturally relevant
@@ -143,8 +169,8 @@ usage. It does not mean the engine currently proves external ownership.
 | --- | ---: | --- |
 | Python | 84 | Flask/FastAPI imports and app construction; sqlite3 connections/cursors; os/hashlib/Crypto/jwt/logging imports; builtin printing/conversion |
 | Java | 38 | Servlet/SQL receiver types and fixture intent; standard crypto/deserialization/logging APIs; `System.out.println` |
-| JavaScript | 49 | `require` declarations and receiver origins (Express/axios/jwt/ejs/crypto); callback response APIs; console/Math/eval builtins |
-| **Total** | **171** | All unresolved/`NO_CANDIDATES`, zero candidates |
+| JavaScript | 52 | `require` declarations and receiver origins (Express/axios/jwt/ejs/crypto); callback response APIs; console/Math/eval builtins |
+| **Total** | **174** | All unresolved/`NO_CANDIDATES`, zero candidates |
 
 Specific questions:
 
@@ -208,33 +234,31 @@ The known local `User()` constructor is A by fixture evidence, despite looking
 like any other zero-candidate failure to the current resolver.
 
 Classification reconciliation: Python A/B/C = 3/84/4; Java = 1/38/0;
-JavaScript = 1/49/0. Total = 5/171/4 = 180.
+JavaScript = 1/52/0. Total = 5/174/4 = 183. The original B total was 171;
+only identity splitting adds three B rows, with no classification changes.
 
 ## Noise sources
 
-1. **Fallback probes dominate:** 176/180 sites have zero candidates. Manual
-   review identifies 171 clearly non-project probes, one unindexed project
+1. **Fallback probes dominate:** 179/183 sites have zero candidates. Manual
+   review identifies 174 clearly non-project probes, one unindexed project
    constructor, and four unsafe-to-classify sites among them. Removing all
    zero-candidate observations would remove meaningful project limitations too.
 2. **Detector-dependent bypass:** known sinks/sources/sanitizers are not a global
    exclusion set. The denominator depends on the active security categories,
    not just how many project functions exist. It must not be advertised as
    application understanding or security-analysis coverage.
-3. **Dotted JavaScript semantics:** 26/49 unresolved sites have nonempty dotted
-   names and use exact lookup. All 26 are B in these fixtures. Another four
+3. **Dotted JavaScript semantics:** 26/52 unresolved sites have nonempty dotted
+   names and use exact lookup. All 26 are B in these fixtures. Another seven
    identities have empty names from chained call receivers, leaving 19 unresolved
    bare-name sites (`require` 12, `express` 6, `eval` 1). Exact dotted-name failures
    are substantial noise here, but zero candidates cannot prove future dotted
    calls are external: project object/module members can also be unsupported.
-4. **Unnamed JavaScript identity collisions:** `crypto.createHash(...).update(...)
-   .digest(...)` and `Math.random().toString(...).substring(...)` each have two
-   outer calls with the same start position and extracted empty name. Seven
-   unnamed syntactic calls across four source expressions collapse to four
-   diagnostic identities. The axios `.then(...)` expression contributes the
-   remaining one. A characterization test confirms three call nodes at
-   `crypto_tests.js:5`, column 11 produce two identities (named inner call plus
-   one empty-name identity). This is a separate location/name limitation to
-   discuss before promising exact syntactic-site counts; it is not fixed here.
+4. **Previously collapsed JavaScript identities (corrected):** the crypto and
+   Math chains shared start points and empty names. Seven unnamed syntactic calls
+   originally collapsed to four identities; complete source spans now preserve
+   all seven. The corrected regression checks complete Tree-sitter call spans.
+   Call-name extraction is unchanged and can still be empty; that is a separate
+   representational limitation, not a reason to collapse different spans.
 5. **Index/local limitations:** Python's forward `send_email` declaration is
    counted through project lookup while already registered locals bypass it;
    the known `User` class is absent from the function index. Neither presence
@@ -278,9 +302,9 @@ and recursive revisits; do not encode traversal-dependent “last trigger wins.�
 
 | Option | Observed effect | Benefits | Costs/limitations |
 | --- | --- | --- | --- |
-| A: all resolver-site identities | 180 sites, 4 resolved | Honest account of actual probes; preserves unknown and unsupported attempts; no loss of observations | Includes 171 clearly non-project sites here; category/local/name extraction affects counts. Useful diagnostic workload, misleading project-understanding metric. |
+| A: all resolver-site identities | 183 sites, 4 resolved | Honest account of actual probes; preserves unknown and unsupported attempts; no loss of observations | Includes 174 clearly non-project sites here; category/local/name extraction affects counts. Useful diagnostic workload, misleading project-understanding metric. |
 | B: explicit project binding or candidate present | 4 sites here, all resolved (Python 2, Java 1, JS 1) | Far less fallback noise; defensible project-evidence denominator | Drops the known local `User()` constructor and four unknown sites here. Misses unsupported project members/classes/import forms when evidence is not represented. Retaining explicit project binding is essential for meaningful zero-candidate failures. |
-| C: all events plus structured origin/evidence | Retains all 180; permits separately labeled candidate/binding and fallback subsets | Preserves maximum information; exposes resolution decision separately from reason for attempting it; no external API blacklist needed | Requires a schema/design discussion, frontend fact definitions, deterministic duplicate policy, and tests. Provenance does not repair missing semantics or blank-name identity collisions. |
+| C: all events plus structured origin/evidence | Retains all 183; permits separately labeled candidate/binding and fallback subsets | Preserves maximum information; exposes resolution decision separately from reason for attempting it; no external API blacklist needed | Requires a schema/design discussion, frontend fact definitions, deterministic duplicate policy, and tests. Provenance does not repair missing semantics or incomplete call-name representation. |
 
 The static corpus contains no explicit missing-import target. Nevertheless, the
 existing `test_python_import_events_copy_decision` case in
@@ -301,9 +325,9 @@ all observations. Before ScanResult/UI exposure:
 2. Specify user metrics as separately labeled resolver-probe counts,
    project-evidenced lookup outcomes, and fallback outcomes. Publish denominator
    definitions and limitations; none is “percentage of application understood.”
-3. Decide how unnamed chained calls should be represented/identified before
-   asserting one diagnostic per distinct syntactic call. Treat this as a separate
-   bounded identity question, not a reason to change language resolution here.
+3. Source-span identity now separates the observed chained calls. Keep tests for
+   complete spans and genuinely unavailable-position fallbacks; do not assume
+   provenance alone supplies missing source-location or call-name information.
 4. Validate meaningful zero-candidate explicit targets, unsupported bindings,
    category-dependent revisits, and recursion against the existing invariants.
    Add further corpora before making general population claims.
@@ -311,4 +335,5 @@ all observations. Before ScanResult/UI exposure:
 Do not introduce a growing `print`/`println`/`console.log` blacklist. Existing
 security semantics can be discussed separately where they justify bypass, with
 finding compatibility tests, but reclassifying calls is not necessary to retain
-honest observability. No part of this recommendation is implemented by this audit.
+honest observability. Structured provenance and user metrics remain unimplemented. The only subsequent
+implementation reported here corrects source-span identity.

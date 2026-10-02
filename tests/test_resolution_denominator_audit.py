@@ -34,7 +34,7 @@ def test_real_rules_probe_logging_but_unconditionally_handle_java_framework_sink
     assert any(event.call_name == "getResultList" for event in legacy)
 
 
-def test_unnamed_javascript_chain_calls_share_an_existing_diagnostic_identity(monkeypatch):
+def test_unnamed_javascript_chain_calls_have_distinct_source_spans(monkeypatch):
     from tree_sitter import Language, Parser
     import tree_sitter_javascript
 
@@ -52,4 +52,10 @@ def test_unnamed_javascript_chain_calls_share_an_existing_diagnostic_identity(mo
     site = [event for event in events if Path(event.file_path).name == "crypto_tests.js"
             and event.line == 5 and event.column == 11]
     assert {event.call_name for event in site} == {"", "crypto.createHash"}
-    assert len(site) == 2  # The two unnamed outer calls collapse; no behavior change here.
+    assert len(site) == 3  # Each complete call span now has its own identity.
+    assert {(event.end_line, event.end_column) for event in site} == {
+        (node.end_point[0] + 1, node.end_point[1]) for node in chain_calls
+    }
+    assert len({event.identity for event in site}) == 3
+    assert all(event.status is ResolutionStatus.UNRESOLVED for event in site)
+    assert len(events) == 45  # Previously 42 across the main JavaScript fixtures.

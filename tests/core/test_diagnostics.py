@@ -2,14 +2,14 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from dr_source.core.diagnostics import ResolutionDiagnostic, ResolutionSummary, ScanDiagnostics
+from dr_source.core.diagnostics import ResolutionDiagnostic, ResolutionDiagnosticConflict, ResolutionSummary, ScanDiagnostics
 from dr_source.core.project_index import ProjectIndex
 from dr_source.core.resolution import ResolutionReason, ResolutionStatus
 
 
 def event(**changes):
     values = dict(language="python", file_path="src/./app.py", line=10,
-                  column=0, call_name="execute", status=ResolutionStatus.UNRESOLVED,
+                  column=0, end_line=10, end_column=9, call_name="execute", status=ResolutionStatus.UNRESOLVED,
                   reason=ResolutionReason.NO_CANDIDATES, candidates=())
     values.update(changes)
     return ResolutionDiagnostic(**values)
@@ -17,13 +17,14 @@ def event(**changes):
 
 def test_event_immutable_normalized_identity_and_equality():
     diagnostic = event()
-    assert diagnostic.identity == ("python", "src/app.py", 10, 0, "execute")
+    assert diagnostic.identity == ("python", "src/app.py", 10, 0, 10, 9, "execute")
     assert diagnostic == event(file_path="src/sub/../app.py")
     assert hash(diagnostic) == hash(event(file_path="src/app.py"))
     with pytest.raises(FrozenInstanceError):
         diagnostic.line = 20
     for field, value in (("language", "java"), ("file_path", "other.py"),
-                         ("line", None), ("column", None), ("call_name", "other")):
+                         ("line", None), ("column", None), ("end_line", None),
+                         ("end_column", None), ("call_name", "other")):
         assert replace(diagnostic, **{field: value}).identity != diagnostic.identity
     changed = replace(diagnostic, status=ResolutionStatus.UNSUPPORTED,
                       reason=ResolutionReason.UNSUPPORTED_CALL_FORM)
@@ -95,6 +96,43 @@ def test_conflicting_same_site_is_rejected_in_either_order(reverse):
         events.reverse()
     collector = ScanDiagnostics()
     collector.record_resolution(events[0])
-    with pytest.raises(ValueError, match="Conflicting resolution diagnostics"):
+    with pytest.raises(ResolutionDiagnosticConflict, match="Conflicting resolution diagnostics"):
         collector.record_resolution(events[1])
     assert collector.resolution_events() == (events[0],)
+
+
+@pytest.mark.parametrize("ends", [((10, 9), (10, 15)), ((10, 9), (11, 9))])
+def test_same_start_different_end_remains_distinct_and_order_independent(ends):
+    events = tuple(event(end_line=line, end_column=column) for line, column in ends)
+    collectors = (ScanDiagnostics(), ScanDiagnostics())
+    for collector, ordered in zip(collectors, (events, reversed(events))):
+        for diagnostic in ordered:
+            collector.record_resolution(diagnostic)
+            collector.record_resolution(diagnostic)
+        assert collector.summary() == ResolutionSummary(2, 0, 2, 0, 0)
+    assert collectors[0].resolution_events() == collectors[1].resolution_events() == events
+    assert events[0].identity != events[1].identity
+
+
+def test_missing_end_coordinates_use_deterministic_none_fallback():
+    missing = event(end_line=None, end_column=None)
+    partial = event(end_line=10, end_column=None)
+    complete = event()
+    assert missing.identity == ("python", "src/app.py", 10, 0, None, None, "execute")
+    collector = ScanDiagnostics()
+    for diagnostic in (complete, partial, missing, missing):
+        collector.record_resolution(diagnostic)
+    assert collector.resolution_events() == (missing, partial, complete)
+    assert collector.summary() == ResolutionSummary(3, 0, 3, 0, 0)
+    with pytest.raises(ResolutionDiagnosticConflict):
+        collector.record_resolution(replace(missing, status=ResolutionStatus.UNSUPPORTED,
+                                            reason=ResolutionReason.UNSUPPORTED_CALL_FORM))
+
+
+def test_exact_full_span_duplicate_counts_once():
+    diagnostic = event()
+    collector = ScanDiagnostics()
+    collector.record_resolution(diagnostic)
+    collector.record_resolution(diagnostic)
+    assert collector.resolution_events() == (diagnostic,)
+    assert collector.summary() == ResolutionSummary(1, 0, 1, 0, 0)

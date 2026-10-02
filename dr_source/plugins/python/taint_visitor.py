@@ -176,9 +176,11 @@ class PythonTaintVisitor(ast.NodeVisitor):
         # Legacy standalone visitors without scan context retain lookup behavior.
         if self.analysis_context is not None:
             line, column = getattr(node, "lineno", None), getattr(node, "col_offset", None)
+            end_line, end_column = getattr(node, "end_lineno", None), getattr(node, "end_col_offset", None)
             self.analysis_context.diagnostics.record_resolution(ResolutionDiagnostic(
                 language="python", file_path=self.current_file,
-                line=line, column=column, call_name=call_name,
+                line=line, column=column, end_line=end_line, end_column=end_column,
+                call_name=call_name,
                 status=resolution.status, reason=resolution.reason,
                 candidates=resolution.candidates,
             ))

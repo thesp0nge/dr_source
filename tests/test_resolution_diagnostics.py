@@ -100,7 +100,9 @@ def test_scanner_records_exact_existing_project_outcome(monkeypatch, tmp_path, l
     events = scanner.diagnostics.resolution_events()
     assert len(events) == 1
     event = events[0]
-    assert event.identity == (language, str(tmp_path / ("app" + extension)), *position, "projectTarget")
+    expression = 'helper.projectTarget("constant")' if language == "java" else "projectTarget('constant')"
+    end = (position[0], position[1] + len(expression.encode("utf-8")))
+    assert event.identity == (language, str(tmp_path / ("app" + extension)), *position, *end, "projectTarget")
     expected = scanner.project_index.resolve_unique("projectTarget", language)
     assert (event.status, event.reason, event.candidates) == (expected.status, expected.reason, expected.candidates)
     counts = {ResolutionStatus.RESOLVED: (1, 0, 0, 0),
@@ -127,7 +129,8 @@ def test_python_import_events_copy_decision(monkeypatch, tmp_path, imports, name
     write(tmp_path, "service.py", programs("python")[1] if target else "value = 1\n")
     scanner = scan_project(monkeypatch, tmp_path, "python")
     event, = scanner.diagnostics.resolution_events()
-    assert event.identity == ("python", str(tmp_path / "app.py"), 2, 0, name)
+    assert event.identity == ("python", str(tmp_path / "app.py"), 2, 0,
+                              2, len(f"{name}('constant')"), name)
     assert event.status is status
     assert event.reason is reason
     if status is ResolutionStatus.RESOLVED:
@@ -248,6 +251,9 @@ def test_conflicting_diagnostics_propagate_through_plugin_and_scanner(monkeypatc
             language, str(tmp_path / ("app" + LANGUAGES[language][2])),
             line, column, "projectTarget", ResolutionStatus.UNSUPPORTED,
             ResolutionReason.UNSUPPORTED_CALL_FORM,
+            end_line=line, end_column=column + len(
+                'helper.projectTarget("constant")' if language == "java" else "projectTarget('constant')"
+            ),
         ))
     with pytest.raises(ResolutionDiagnosticConflict, match="Conflicting resolution diagnostics"):
         scan_project(monkeypatch, tmp_path, language, before_scan=reject)
@@ -283,6 +289,9 @@ def test_call_columns_are_zero_based_utf8_bytes(monkeypatch, tmp_path, language,
     event, = scanner.diagnostics.resolution_events()
     assert event.line == 1
     assert event.column == len(prefix.encode("utf-8"))
+    assert event.end_line == 1
+    expression = suffix.split(";")[0].rstrip("\n")
+    assert event.end_column == len((prefix + expression).encode("utf-8"))
     assert event.status is ResolutionStatus.UNRESOLVED
 
 
@@ -300,3 +309,36 @@ def test_visitor_context_requires_source_file_and_consistent_index(tmp_path, lan
     with pytest.raises(ValueError, match="index must match"):
         visitor_class(*args, analysis_context=context, current_file="app",
                       project_index=ProjectIndex())
+
+
+@pytest.mark.parametrize("language, source, start, end", [
+    ("python", "missing(\n    'é'\n)\n", (1, 0), (3, 1)),
+    ("javascript", "missing(\n    'é'\n);\n", (1, 0), (3, 1)),
+    ("java", 'class App { void route() {\n    helper.missing(\n        "é"\n    );\n} }\n', (2, 4), (4, 5)),
+])
+def test_multiline_call_span_uses_complete_expression(monkeypatch, tmp_path, language, source, start, end):
+    write(tmp_path, "app" + LANGUAGES[language][2], source)
+    scanner = scan_project(monkeypatch, tmp_path, language)
+    event, = scanner.diagnostics.resolution_events()
+    assert (event.line, event.column) == start
+    assert (event.end_line, event.end_column) == end
+    assert event.status is ResolutionStatus.UNRESOLVED
+
+
+def test_python_ast_without_end_positions_records_fallback(monkeypatch, tmp_path):
+    import ast
+    from dr_source.core.context import AnalysisContext
+    from dr_source.core.diagnostics import ScanDiagnostics
+    from dr_source.core.project_index import ProjectIndex
+
+    context = AnalysisContext(ProjectIndex(str(tmp_path)), str(tmp_path), ScanDiagnostics())
+    visitor = PythonTaintVisitor([], [], [], analysis_context=context,
+                                 current_file=str(tmp_path / "app.py"), structural_analysis=False)
+    tree = ast.parse("missing()")
+    tree.body[0].value.end_lineno = None
+    tree.body[0].value.end_col_offset = None
+    visitor.visit(tree)
+    visitor.visit(tree)
+    event, = context.diagnostics.resolution_events()
+    assert event.identity == ("python", str(tmp_path / "app.py"), 1, 0, None, None, "missing")
+    assert context.diagnostics.summary() == ResolutionSummary(1, 0, 1, 0, 0)

@@ -120,9 +120,11 @@ class JavaScriptTaintVisitor:
         # Legacy standalone visitors without scan context retain lookup behavior.
         if self.analysis_context is not None:
             line, column = node.start_point[0] + 1, node.start_point[1]
+            end_line, end_column = node.end_point[0] + 1, node.end_point[1]
             self.analysis_context.diagnostics.record_resolution(ResolutionDiagnostic(
                 language="javascript", file_path=self.current_file,
-                line=line, column=column, call_name=call_name,
+                line=line, column=column, end_line=end_line, end_column=end_column,
+                call_name=call_name,
                 status=resolution.status, reason=resolution.reason,
                 candidates=resolution.candidates,
             ))

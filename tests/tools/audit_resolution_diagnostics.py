@@ -65,7 +65,9 @@ def audit_tree(language, target):
     for event in scanner.diagnostics.resolution_events():
         row = {
             "language": event.language, "file": relative(event.file_path),
-            "line": event.line, "column": event.column, "call_name": event.call_name,
+            "line": event.line, "column": event.column,
+            "end_line": event.end_line, "end_column": event.end_column,
+            "call_name": event.call_name,
             "status": event.status.value, "reason": event.reason.value,
             "candidate_count": len(event.candidates),
             "candidates": [{"file": relative(candidate.file_path), "name": candidate.name,

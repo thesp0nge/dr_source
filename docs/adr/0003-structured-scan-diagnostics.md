@@ -6,8 +6,9 @@ Status: Proposed
 
 `core/diagnostics.py` supplies frozen `ResolutionDiagnostic` and
 `ResolutionSummary` values and a scan-owned `ScanDiagnostics` collector. Event
-identity uses language, lexically normalized source path, nullable line/column,
-and syntactic call name. Candidate tuples retain the resolver's deterministic
+identity originally used language, lexically normalized source path, nullable
+line/column, and syntactic call name; the source-span correction below adds end
+coordinates. Candidate tuples retain the resolver's deterministic
 order. Equivalent duplicates count once; inconsistent payloads at the same
 identity raise `ValueError` without replacing the existing observation. Event
 snapshots sort by identity with missing coordinates before numeric coordinates.
@@ -75,6 +76,25 @@ that source site once if any existing visitor attempts project resolution.
 Findings, resolver decisions, logging, reports, and persistence are unchanged.
 Scanner retains its existing diagnostics attribute; broader ScanResult exposure,
 user-facing summaries, and rendering remain separate work.
+
+## Source-span identity correction
+
+Diagnostic identity now includes the complete call-expression span:
+`(language, normalized file path, line, column, end_line, end_column, call_name)`.
+Python records `ast.Call` start/end positions; Java and JavaScript record the
+actual invocation/call node's Tree-sitter start/end points. Lines are one-based,
+columns are zero-based UTF-8 byte offsets, and the end is exclusive. End fields
+are optional for genuinely unavailable positions; `None` is the deterministic
+fallback, with all available coordinates retained and conflict detection active.
+
+This distinguishes nested/chained JavaScript calls sharing a start and empty
+syntactic name. Event ordering uses the full identity, with missing coordinates
+before present coordinates. No status, reason, candidate, node object identity,
+source text, or traversal order participates in site identity. Exact duplicate
+payloads still count once; conflicting payloads for the same full-span identity
+still raise `ResolutionDiagnosticConflict`. There is no persisted-format or CLI
+migration: diagnostics have not been exposed through those contracts. Resolution,
+findings, recording boundaries, and metric classification remain unchanged.
 
 ## Context
 
@@ -187,6 +207,8 @@ class ResolutionDiagnostic:
     file_path: str
     line: Optional[int]
     column: Optional[int]
+    end_line: Optional[int]
+    end_column: Optional[int]
     call_name: str
     status: ResolutionStatus
     reason: ResolutionReason
@@ -198,7 +220,7 @@ are needed to explain where an attempt occurred. Status and reason are copied
 from the resolver's `Resolution`; diagnostics do not reinterpret them.
 Candidate IDs preserve ambiguity evidence without retaining AST or tree-sitter
 objects. Candidate order is the deterministic order supplied by the index or
-language resolver. A nullable line or column accommodates frontends that do
+language resolver. Nullable start/end coordinates accommodate frontends that do
 not have a usable position for a particular call, but an event should not be
 created without a source file when the resolver is operating on a project
 source unit.
@@ -214,7 +236,7 @@ following multiple taint paths; counting each visit would make totals depend on
 recursion order and data-flow details. The deterministic event identity is:
 
 ```text
-(language, normalized file path, line, column, syntactic call name)
+(language, normalized file path, line, column, end_line, end_column, syntactic call name)
 ```
 
 The collector keeps one event per identity. If the same site is encountered
