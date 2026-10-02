@@ -14,6 +14,7 @@ ResolutionSite = Tuple[str, str, Optional[int], Optional[int], str]
 class ResolutionDiagnostic:
     """Immutable call-site evidence. Candidate order is supplied by the resolver.
 
+    Positions are one-based lines and zero-based UTF-8 byte columns.
     Paths use the same lexical normalization as SymbolId, without resolving
     symlinks or changing the caller's absolute/relative path basis.
     """
@@ -52,6 +53,10 @@ class ResolutionSummary:
     unsupported: int
 
 
+class ResolutionDiagnosticConflict(ValueError):
+    """A source site produced inconsistent decisions within one scan."""
+
+
 class ScanDiagnostics:
     """One collector per scan, with stable decisions required for each site."""
 
@@ -61,7 +66,7 @@ class ScanDiagnostics:
     def record_resolution(self, event: ResolutionDiagnostic) -> None:
         existing = self._resolution_events.get(event.identity)
         if existing is not None and existing != event:
-            raise ValueError(f"Conflicting resolution diagnostics for {event.identity!r}")
+            raise ResolutionDiagnosticConflict(f"Conflicting resolution diagnostics for {event.identity!r}")
         self._resolution_events[event.identity] = event
 
     def resolution_events(self) -> Tuple[ResolutionDiagnostic, ...]:

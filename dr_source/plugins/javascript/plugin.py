@@ -6,6 +6,7 @@ import tree_sitter_javascript
 
 from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.context import AnalysisContext
+from dr_source.core.diagnostics import ResolutionDiagnosticConflict
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
 from .taint_visitor import JavaScriptTaintVisitor
 
@@ -93,7 +94,8 @@ class JavaScriptAstAnalyzer(AnalyzerPlugin):
                     sinks=sinks, 
                     sanitizers=set(sanitizers),
                     source_code=code_bytes,
-                    project_index=self.analysis_context.project_index if self.analysis_context else None
+                    analysis_context=self.analysis_context,
+                    current_file=file_path,
                 )
                 visitor.visit(tree.root_node)
 
@@ -110,6 +112,8 @@ class JavaScriptAstAnalyzer(AnalyzerPlugin):
                         )
                     )
 
+        except ResolutionDiagnosticConflict:
+            raise
         except Exception as e:
             logger.error(f"Error analyzing {file_path} with {self.name}: {e}")
 

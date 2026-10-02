@@ -3,15 +3,23 @@ import logging
 import os
 from typing import List, Set, Dict, Any, Optional
 
+from dr_source.core.context import AnalysisContext
+from dr_source.core.diagnostics import ResolutionDiagnostic
 from dr_source.core.resolution import Resolution, ResolutionReason, ResolutionStatus
 
 logger = logging.getLogger(__name__)
 
 class PythonTaintVisitor(ast.NodeVisitor):
-    def __init__(self, source_list: List[str], sink_list: List[Any], sanitizer_list: List[str], project_index: Optional[Any] = None, depth: int = 0, structural_analysis: bool = True, current_file: Optional[str] = None, python_context: Optional[Any] = None):
+    def __init__(self, source_list: List[str], sink_list: List[Any], sanitizer_list: List[str], project_index: Optional[Any] = None, depth: int = 0, structural_analysis: bool = True, current_file: Optional[str] = None, python_context: Optional[Any] = None, *, analysis_context: Optional[AnalysisContext] = None):
         self.sources = set(source_list)
         self.sanitizers = set(s.split(".")[-1] for s in sanitizer_list)
-        self.project_index = project_index
+        self.analysis_context = analysis_context
+        if analysis_context is not None:
+            if project_index is not None and project_index is not analysis_context.project_index:
+                raise ValueError("Visitor index must match its analysis context")
+            if not current_file:
+                raise ValueError("A prepared visitor requires its current source file")
+        self.project_index = analysis_context.project_index if analysis_context else project_index
         self.current_file = current_file
         self.python_context = python_context
         self.depth = depth
@@ -164,6 +172,17 @@ class PythonTaintVisitor(ast.NodeVisitor):
             return "source", name
         return None, None
 
+    def _record_resolution_diagnostic(self, node: ast.Call, call_name: str, resolution: Resolution) -> None:
+        # Legacy standalone visitors without scan context retain lookup behavior.
+        if self.analysis_context is not None:
+            line, column = getattr(node, "lineno", None), getattr(node, "col_offset", None)
+            self.analysis_context.diagnostics.record_resolution(ResolutionDiagnostic(
+                language="python", file_path=self.current_file,
+                line=line, column=column, call_name=call_name,
+                status=resolution.status, reason=resolution.reason,
+                candidates=resolution.candidates,
+            ))
+
     def _resolve_project_call(self, node: ast.Call) -> Resolution:
         """Resolve a project call using Python context and indexed candidates.
 
@@ -278,6 +297,7 @@ class PythonTaintVisitor(ast.NodeVisitor):
             f_def = self.functions.get(fn)
             if not f_def and self.project_index and self.depth < self.max_depth:
                 resolution = self._resolve_project_call(node)
+                self._record_resolution_diagnostic(node, fn, resolution)
                 self._log_project_resolution(fn, resolution)
                 if resolution.status is ResolutionStatus.RESOLVED and resolution.symbol is not None:
                     definition = self.project_index.get_definition(resolution.symbol)
@@ -308,6 +328,7 @@ class PythonTaintVisitor(ast.NodeVisitor):
                     self.depth + 1,
                     current_file=t_file,
                     python_context=self.python_context,
+                    analysis_context=self.analysis_context,
                 )
                 v.scopes = [tainted]; v.visit(f_def); self.vulnerabilities.extend(v.vulnerabilities)
             else:

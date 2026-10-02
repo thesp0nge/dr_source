@@ -4,6 +4,7 @@ import os
 from typing import Any, List
 from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.context import AnalysisContext
+from dr_source.core.diagnostics import ResolutionDiagnosticConflict
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
 from .taint_visitor import PythonTaintVisitor
 from .project_context import PythonProjectContext
@@ -80,7 +81,7 @@ class PythonAstAnalyzer(AnalyzerPlugin):
                     sources,
                     sinks,
                     sanitizers,
-                    project_index=self.analysis_context.project_index if self.analysis_context else None,
+                    analysis_context=self.analysis_context,
                     current_file=file_path,
                     python_context=self.python_context,
                     structural_analysis=False,
@@ -98,6 +99,8 @@ class PythonAstAnalyzer(AnalyzerPlugin):
                         trace=v["trace"],
                         plugin_name=self.name
                     ))
+        except ResolutionDiagnosticConflict:
+            raise
         except Exception as e:
             logger.error(f"Error analyzing {file_path} with Python AST Analyzer: {e}")
 

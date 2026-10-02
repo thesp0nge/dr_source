@@ -8,6 +8,7 @@ import tree_sitter_java
 
 from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.context import AnalysisContext
+from dr_source.core.diagnostics import ResolutionDiagnosticConflict
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
 from .taint_detector import TaintDetector
 
@@ -110,7 +111,7 @@ class JavaAstAnalyzer(AnalyzerPlugin):
                     sink_list=sinks,
                     sanitizer_list=sanitizers,
                     vuln_prefix=vuln_type,
-                    project_index=self.analysis_context.project_index if self.analysis_context else None
+                    analysis_context=self.analysis_context
                 )
 
                 for issue in raw_issues:
@@ -125,6 +126,8 @@ class JavaAstAnalyzer(AnalyzerPlugin):
                     )
                     findings.append(vuln)
 
+        except ResolutionDiagnosticConflict:
+            raise
         except Exception as e:
             logger.error(f"Error analyzing {file_path} with {self.name}: {e}")
 

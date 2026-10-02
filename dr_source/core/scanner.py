@@ -9,7 +9,7 @@ from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.db import ScanDatabase
 from dr_source.core.project_index import ProjectIndex
 from dr_source.core.context import AnalysisContext
-from dr_source.core.diagnostics import ScanDiagnostics
+from dr_source.core.diagnostics import ScanDiagnostics, ResolutionDiagnosticConflict
 from dr_source.core.utils import timeout_session, TimeoutException
 
 logger = logging.getLogger(__name__)
@@ -208,6 +208,8 @@ class Scanner:
                                     all_findings_dataclass.append(f)
                                     reported_keys.add(key)
                         except TimeoutException:
+                            raise
+                        except ResolutionDiagnosticConflict:
                             raise
                         except Exception as e:
                             # Log to file/stderr so it doesn't break the progress bar

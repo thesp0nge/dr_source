@@ -29,11 +29,52 @@ not use that adapter. Scanner no longer injects attributes during analysis.
 Third-party plugins that override `prepare()` must manage their own context;
 the adapter can be removed once legacy plugin migration is complete.
 
-Resolver recording and recursive context propagation remain Phase 2 work.
-Ordinary scans currently produce zero diagnostic events. Output, persistence,
+At the end of Phase 1, resolver recording and recursive context propagation
+were deferred; ordinary scans produced zero diagnostic events. Output, persistence,
 finding semantics, and resolution decisions are unchanged. A fresh Scanner
 remains necessary for a new source snapshot, as required by ProjectIndex's
 registration lifecycle.
+
+## Phase 2 implementation note
+
+Python, Java, and JavaScript emit events in their call visitors immediately
+following the existing `_resolve_project_call()` decision. Each copies its
+status, reason, and candidate tuple without another lookup. Lookup guards,
+local-function handling, sink handling, framework handling, and depth limits
+are unchanged. Python's structural-only pass still has no project index and
+therefore does not gain project lookup merely through instrumentation.
+
+Taint visitors accept an optional explicit `AnalysisContext`; prepared analyzers
+pass their scan context and source file. Recursive visitors retain that exact
+context and switch to the callee's file (or retain the current file for local
+simulation). Context-backed visitors use its index, reject a conflicting legacy
+index argument, and require a source file. Standalone legacy visitors can still
+use the index argument without collecting diagnostics.
+
+Event positions describe the actual call: one-based lines and zero-based UTF-8
+byte columns, from Python AST positions or converted Tree-sitter start points.
+Java retains its bare method name; JavaScript retains its exact dotted name;
+Python retains the syntactic name before import narrowing.
+
+The collector remains the sole deduplication owner. Inconsistent same-site
+payloads raise `ResolutionDiagnosticConflict`, a `ValueError` subtype which
+propagates through analyzer and Scanner error handlers instead of being logged
+and suppressed. Tests cover real conflicting records and repeated recursive
+visits, including traversal/registration-order independence.
+
+The denominator is existing attempted project lookup, not all calls. Recognized
+sinks, locally handled calls, Java framework sinks, and non-call source accesses
+can bypass lookup. Assignment source/sanitizer recognition alone does not stop
+the later call visitor from performing lookup. Characterization tests retain
+existing attempts for `request.args.get`, Java `getParameter`, sanitizer calls,
+Python `print`, Java `println`, and JavaScript `console.log`. No general external
+library classifier was introduced. Across multiple security categories a call
+can be a sink in one visitor and reach lookup in another; the collector counts
+that source site once if any existing visitor attempts project resolution.
+
+Findings, resolver decisions, logging, reports, and persistence are unchanged.
+Scanner retains its existing diagnostics attribute; broader ScanResult exposure,
+user-facing summaries, and rendering remain separate work.
 
 ## Context
 

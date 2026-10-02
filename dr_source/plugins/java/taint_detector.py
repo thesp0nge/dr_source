@@ -1,6 +1,7 @@
 import logging
 from typing import List, Dict, Any, Optional
 from tree_sitter import Tree
+from dr_source.core.context import AnalysisContext
 from .taint_visitor import TaintVisitor
 
 logger = logging.getLogger(__name__)
@@ -17,9 +18,14 @@ class TaintDetector:
         sanitizer_list: List[str],
         vuln_prefix: str,
         project_index: Optional[Any] = None,
+        *,
+        analysis_context: Optional[AnalysisContext] = None,
     ) -> List[Dict[str, Any]]:
         # 1. Create the visitor
-        visitor = TaintVisitor(source_list, sink_list, sanitizer_list, source_code, project_index)
+        visitor = TaintVisitor(
+            source_list, sink_list, sanitizer_list, source_code, project_index,
+            analysis_context=analysis_context, current_file=file_object.path,
+        )
 
         # 2. Run the visit
         visitor.visit(ast_tree.root_node)

@@ -3,17 +3,26 @@ import os
 from typing import List, Dict, Any, Set, Optional
 from tree_sitter import Node
 
+from dr_source.core.context import AnalysisContext
+from dr_source.core.diagnostics import ResolutionDiagnostic
 from dr_source.core.resolution import Resolution, ResolutionStatus
 
 logger = logging.getLogger(__name__)
 
 class JavaScriptTaintVisitor:
-    def __init__(self, sources: Set[str], sinks: List[Any], sanitizers: Set[str], source_code: bytes, project_index: Optional[Any] = None, depth: int = 0, initial_scope: Optional[Dict[str, Any]] = None):
+    def __init__(self, sources: Set[str], sinks: List[Any], sanitizers: Set[str], source_code: bytes, project_index: Optional[Any] = None, depth: int = 0, initial_scope: Optional[Dict[str, Any]] = None, *, analysis_context: Optional[AnalysisContext] = None, current_file: Optional[str] = None):
         self.scopes: List[Dict[str, Dict[str, Any]]] = [initial_scope if initial_scope else {}]
         self.constants: List[Dict[str, Any]] = [{}]
         self.vulnerabilities: List[Dict[str, Any]] = []
         self.functions: Dict[str, Node] = {} 
-        self.project_index = project_index
+        self.analysis_context = analysis_context
+        if analysis_context is not None:
+            if project_index is not None and project_index is not analysis_context.project_index:
+                raise ValueError("Visitor index must match its analysis context")
+            if not current_file:
+                raise ValueError("A prepared visitor requires its current source file")
+        self.project_index = analysis_context.project_index if analysis_context else project_index
+        self.current_file = current_file
         self.depth = depth
         self.max_depth = 3
         self.is_simulation = initial_scope is not None
@@ -107,6 +116,17 @@ class JavaScriptTaintVisitor:
         if name in self.sources or any(name.startswith(s) for s in self.sources): return "source", name
         return None, None
 
+    def _record_resolution_diagnostic(self, node: Node, call_name: str, resolution: Resolution) -> None:
+        # Legacy standalone visitors without scan context retain lookup behavior.
+        if self.analysis_context is not None:
+            line, column = node.start_point[0] + 1, node.start_point[1]
+            self.analysis_context.diagnostics.record_resolution(ResolutionDiagnostic(
+                language="javascript", file_path=self.current_file,
+                line=line, column=column, call_name=call_name,
+                status=resolution.status, reason=resolution.reason,
+                candidates=resolution.candidates,
+            ))
+
     def _resolve_project_call(self, name: str) -> Resolution:
         """Resolve a project function/member name using exact JS candidates.
 
@@ -156,6 +176,7 @@ class JavaScriptTaintVisitor:
                     f_def = self.functions.get(name)
                     if not f_def and self.project_index and self.depth < self.max_depth:
                         resolution = self._resolve_project_call(name)
+                        self._record_resolution_diagnostic(node, name, resolution)
                         if resolution.status is ResolutionStatus.AMBIGUOUS:
                             logger.warning(
                                 "Ambiguous function %r: %d candidates; language=javascript; "
@@ -232,7 +253,10 @@ class JavaScriptTaintVisitor:
         if tainted:
             body = func_node.child_by_field_name("body")
             if body:
-                v = JavaScriptTaintVisitor(self.sources, [{"name": n, "args": a} for n, a in self.sinks.items()], self.sanitizers, t_code, self.project_index, self.depth + 1, initial_scope=tainted)
+                v = JavaScriptTaintVisitor(self.sources, [{"name": n, "args": a} for n, a in self.sinks.items()], self.sanitizers, t_code, self.project_index, self.depth + 1, initial_scope=tainted,
+                    analysis_context=self.analysis_context,
+                    current_file=target_file or self.current_file,
+                )
                 v.visit(body); self.vulnerabilities.extend(v.vulnerabilities)
 
     def get_vulnerabilities(self) -> List[Dict[str, Any]]: return self.vulnerabilities
