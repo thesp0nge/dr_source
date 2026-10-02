@@ -7,6 +7,7 @@ from tree_sitter import Parser, Language
 import tree_sitter_java
 
 from dr_source.api import AnalyzerPlugin, Vulnerability
+from dr_source.core.context import AnalysisContext
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
 from .taint_detector import TaintDetector
 
@@ -22,7 +23,7 @@ class JavaAstAnalyzer(AnalyzerPlugin):
     def __init__(self):
         self.kb = KnowledgeBaseLoader()
         self.detector = TaintDetector()
-        self.project_index = None
+        self.analysis_context = None
         
         # Initialize Tree-sitter Java parser
         try:
@@ -33,6 +34,9 @@ class JavaAstAnalyzer(AnalyzerPlugin):
         except Exception as e:
             logger.error(f"Failed to initialize Tree-sitter Java parser: {e}")
             self.parser = None
+
+    def prepare(self, context: AnalysisContext) -> None:
+        self.analysis_context = context
 
     @property
     def name(self) -> str:
@@ -106,7 +110,7 @@ class JavaAstAnalyzer(AnalyzerPlugin):
                     sink_list=sinks,
                     sanitizer_list=sanitizers,
                     vuln_prefix=vuln_type,
-                    project_index=self.project_index
+                    project_index=self.analysis_context.project_index if self.analysis_context else None
                 )
 
                 for issue in raw_issues:

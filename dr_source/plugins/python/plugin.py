@@ -3,6 +3,7 @@ import logging
 import os
 from typing import Any, List
 from dr_source.api import AnalyzerPlugin, Vulnerability
+from dr_source.core.context import AnalysisContext
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
 from .taint_visitor import PythonTaintVisitor
 from .project_context import PythonProjectContext
@@ -12,8 +13,11 @@ logger = logging.getLogger(__name__)
 class PythonAstAnalyzer(AnalyzerPlugin):
     def __init__(self):
         self.kb = KnowledgeBaseLoader()
-        self.project_index = None
+        self.analysis_context = None
         self.python_context = None
+
+    def prepare(self, context: AnalysisContext) -> None:
+        self.analysis_context = context
 
     @property
     def name(self) -> str:
@@ -76,7 +80,7 @@ class PythonAstAnalyzer(AnalyzerPlugin):
                     sources,
                     sinks,
                     sanitizers,
-                    project_index=self.project_index,
+                    project_index=self.analysis_context.project_index if self.analysis_context else None,
                     current_file=file_path,
                     python_context=self.python_context,
                     structural_analysis=False,

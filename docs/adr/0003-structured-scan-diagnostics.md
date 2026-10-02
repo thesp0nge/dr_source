@@ -2,6 +2,39 @@
 
 Status: Proposed
 
+## Phase 1 implementation note
+
+`core/diagnostics.py` supplies frozen `ResolutionDiagnostic` and
+`ResolutionSummary` values and a scan-owned `ScanDiagnostics` collector. Event
+identity uses language, lexically normalized source path, nullable line/column,
+and syntactic call name. Candidate tuples retain the resolver's deterministic
+order. Equivalent duplicates count once; inconsistent payloads at the same
+identity raise `ValueError` without replacing the existing observation. Event
+snapshots sort by identity with missing coordinates before numeric coordinates.
+The summary contains only the total and four status counts; rates are deferred.
+
+`Scanner` creates one normalized absolute project root, `ProjectIndex`, collector,
+and frozen `AnalysisContext` per scanner lifecycle. Before indexing it calls
+`prepare(context)` once for each plugin instance, including plugins registered
+for multiple extensions. Preparation failure propagates explicitly before
+indexing or analysis can proceed with an unprepared plugin. Python, Java,
+JavaScript, PHP, and Ruby retain the context and obtain their visitor index from
+it. Direct standalone analysis without preparation retains its previous
+no-project-index behavior. `index()` and `analyze()` signatures are unchanged.
+
+The base preparation hook is a no-op for simple plugins. As a temporary
+third-party compatibility adapter, it injects the context's index if a legacy
+`project_index` attribute exists. Built-in consumers override the hook and do
+not use that adapter. Scanner no longer injects attributes during analysis.
+Third-party plugins that override `prepare()` must manage their own context;
+the adapter can be removed once legacy plugin migration is complete.
+
+Resolver recording and recursive context propagation remain Phase 2 work.
+Ordinary scans currently produce zero diagnostic events. Output, persistence,
+finding semantics, and resolution decisions are unchanged. A fresh Scanner
+remains necessary for a new source snapshot, as required by ProjectIndex's
+registration lifecycle.
+
 ## Context
 
 DRSource now has a common immutable `Resolution` result. Python, Java, and

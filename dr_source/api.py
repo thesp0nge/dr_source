@@ -3,7 +3,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import os
-from typing import List, Literal, Any
+from typing import List, Literal, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dr_source.core.context import AnalysisContext
 
 # Define standard severity levels
 Severity = Literal["HIGH", "MEDIUM", "LOW", "INFO"]
@@ -72,6 +75,17 @@ class AnalyzerPlugin(ABC):
         The main analysis engine.
         """
         pass
+
+    def prepare(self, context: "AnalysisContext") -> None:
+        """Called once before indexing and analysis for a scanner lifecycle.
+
+        Simple plugins need not override this hook. This temporary adapter keeps
+        legacy third-party project_index consumers operational; built-in index
+        consumers override prepare and retain the explicit context instead.
+        Remove the adapter when legacy plugin migration is complete.
+        """
+        if hasattr(self, "project_index"):
+            self.project_index = context.project_index
 
     def index(self, file_path: str, project_index: Any):
         """

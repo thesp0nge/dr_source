@@ -5,6 +5,7 @@ from tree_sitter import Parser, Language
 import tree_sitter_javascript
 
 from dr_source.api import AnalyzerPlugin, Vulnerability
+from dr_source.core.context import AnalysisContext
 from dr_source.core.knowledge_base import KnowledgeBaseLoader
 from .taint_visitor import JavaScriptTaintVisitor
 
@@ -21,11 +22,14 @@ class JavaScriptAstAnalyzer(AnalyzerPlugin):
     def __init__(self):
         self.kb = KnowledgeBaseLoader()
         self.parser = Parser()
-        self.project_index = None
+        self.analysis_context = None
         if JS_LANGUAGE:
             self.parser.language = JS_LANGUAGE
         else:
             self.parser = None
+
+    def prepare(self, context: AnalysisContext) -> None:
+        self.analysis_context = context
 
     @property
     def name(self) -> str:
@@ -89,7 +93,7 @@ class JavaScriptAstAnalyzer(AnalyzerPlugin):
                     sinks=sinks, 
                     sanitizers=set(sanitizers),
                     source_code=code_bytes,
-                    project_index=self.project_index
+                    project_index=self.analysis_context.project_index if self.analysis_context else None
                 )
                 visitor.visit(tree.root_node)
 

@@ -8,6 +8,8 @@ from tqdm import tqdm
 from dr_source.api import AnalyzerPlugin, Vulnerability
 from dr_source.core.db import ScanDatabase
 from dr_source.core.project_index import ProjectIndex
+from dr_source.core.context import AnalysisContext
+from dr_source.core.diagnostics import ScanDiagnostics
 from dr_source.core.utils import timeout_session, TimeoutException
 
 logger = logging.getLogger(__name__)
@@ -24,7 +26,11 @@ class Scanner:
         self.timeout = timeout
         self.db = ScanDatabase(project_name=target_path)
         analysis_root = self.target_path if os.path.isdir(self.target_path) else os.path.dirname(self.target_path)
-        self.project_index = ProjectIndex(project_root=os.path.abspath(analysis_root or os.curdir))
+        self.project_root = os.path.normpath(os.path.abspath(analysis_root or os.curdir))
+        self.project_index = ProjectIndex(project_root=self.project_root)
+        self.diagnostics = ScanDiagnostics()
+        self.analysis_context = AnalysisContext(self.project_index, self.project_root, self.diagnostics)
+        self._prepared_plugins: List[AnalyzerPlugin] = []
 
         # This will hold { ".java": [JavaPlugin], ".*": [RegexPlugin], ... }
         self.extension_map: Dict[str, List[AnalyzerPlugin]] = {}
@@ -152,6 +158,14 @@ class Scanner:
 
         logger.debug(f"Files to scan: {files_to_scan}")
 
+        # Prepare each instance once, including plugins registered for multiple
+        # extensions. Retain references to avoid object-ID reuse across scans.
+        for plugins in self.extension_map.values():
+            for plugin in plugins:
+                if not any(plugin is prepared for prepared in self._prepared_plugins):
+                    plugin.prepare(self.analysis_context)
+                    self._prepared_plugins.append(plugin)
+
         # 1.5 Indexing Phase: Collect global symbols across all files
         for file_path in tqdm(files_to_scan, desc="Indexing project", unit="file"):
             plugins = self._plugins_for_file(file_path)
@@ -186,10 +200,6 @@ class Scanner:
                 with timeout_session(self.timeout):
                     for plugin in plugins_to_run:
                         try:
-                            # Pass the project index to the plugin if it supports it
-                            if hasattr(plugin, 'project_index'):
-                                plugin.project_index = self.project_index
-                            
                             findings = plugin.analyze(file_path)
                             # Deduplicate findings
                             for f in findings:
