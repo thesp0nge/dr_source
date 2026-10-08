@@ -68,6 +68,7 @@ def audit_tree(language, target):
             "line": event.line, "column": event.column,
             "end_line": event.end_line, "end_column": event.end_column,
             "call_name": event.call_name,
+            "origin": event.origin.value,
             "status": event.status.value, "reason": event.reason.value,
             "candidate_count": len(event.candidates),
             "candidates": [{"file": relative(candidate.file_path), "name": candidate.name,
@@ -86,22 +87,27 @@ def audit_tree(language, target):
     summary = scanner.diagnostics.summary()
     assert summary.total_project_resolution_sites == sum((summary.resolved, summary.unresolved,
                                                         summary.ambiguous, summary.unsupported))
+    origins = scanner.diagnostics.origin_summary()
+    assert summary.total_project_resolution_sites == origins.total_project_resolution_sites == (
+        origins.explicit_project_binding + origins.candidate_backed + origins.fallback_probe
+    )
     return {
         "root": relative(target), "language": language,
         "files_analyzed": scanner.num_files_analyzed,
         "findings": len(scanner.all_findings),
-        "summary": summary.__dict__, "logs": logs.messages, "events": events,
+        "summary": summary.__dict__, "origin_summary": origins.__dict__,
+        "logs": logs.messages, "events": events,
     }
 
 
 def main():
     scans = [audit_tree(language, ROOT / "tests" / "test_code" / subtree / language)
              for language in ANALYZERS for subtree in ("", "inter_file")]
-    counts = Counter((event["language"], event["status"], event["reason"], event["call_name"])
+    counts = Counter((event["language"], event["origin"], event["status"], event["reason"], event["call_name"])
                      for scan in scans for event in scan["events"])
-    aggregates = [{"language": language, "status": status, "reason": reason,
+    aggregates = [{"language": language, "origin": origin, "status": status, "reason": reason,
                    "call_name": name, "sites": count}
-                  for (language, status, reason, name), count in sorted(counts.items())]
+                  for (language, origin, status, reason, name), count in sorted(counts.items())]
     metadata = {
         "python": sys.version.split()[0],
         "versions": {name: importlib.metadata.version(name) for name in (

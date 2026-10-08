@@ -2,7 +2,7 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from dr_source.core.diagnostics import ResolutionDiagnostic, ResolutionDiagnosticConflict, ResolutionSummary, ScanDiagnostics
+from dr_source.core.diagnostics import ResolutionDiagnostic, ResolutionDiagnosticConflict, ResolutionSummary, ScanDiagnostics, ResolutionOrigin, ResolutionOriginSummary
 from dr_source.core.project_index import ProjectIndex
 from dr_source.core.resolution import ResolutionReason, ResolutionStatus
 
@@ -10,7 +10,8 @@ from dr_source.core.resolution import ResolutionReason, ResolutionStatus
 def event(**changes):
     values = dict(language="python", file_path="src/./app.py", line=10,
                   column=0, end_line=10, end_column=9, call_name="execute", status=ResolutionStatus.UNRESOLVED,
-                  reason=ResolutionReason.NO_CANDIDATES, candidates=())
+                  reason=ResolutionReason.NO_CANDIDATES, candidates=(),
+                  origin=ResolutionOrigin.FALLBACK_PROBE)
     values.update(changes)
     return ResolutionDiagnostic(**values)
 
@@ -136,3 +137,55 @@ def test_exact_full_span_duplicate_counts_once():
     collector.record_resolution(diagnostic)
     assert collector.resolution_events() == (diagnostic,)
     assert collector.summary() == ResolutionSummary(1, 0, 1, 0, 0)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_origin_conflict_preserves_source_identity(reverse):
+    first = event()
+    second = replace(first, origin=ResolutionOrigin.EXPLICIT_PROJECT_BINDING)
+    assert first.identity == second.identity
+    if reverse:
+        first, second = second, first
+    collector = ScanDiagnostics()
+    collector.record_resolution(first)
+    collector.record_resolution(replace(first))
+    assert collector.resolution_events() == (first,)
+    with pytest.raises(ResolutionDiagnosticConflict):
+        collector.record_resolution(second)
+    assert collector.resolution_events() == (first,)
+
+
+def test_origin_enum_validation_and_immutability():
+    with pytest.raises(TypeError, match="origin"):
+        event(origin="fallback_probe")
+    with pytest.raises(FrozenInstanceError):
+        event().origin = ResolutionOrigin.CANDIDATE_BACKED
+
+
+def test_origin_summary_is_immutable_and_orthogonal_to_status():
+    collector = ScanDiagnostics()
+    assert collector.origin_summary() == ResolutionOriginSummary(0, 0, 0, 0)
+    for line, (origin, status, reason) in enumerate([
+        (ResolutionOrigin.EXPLICIT_PROJECT_BINDING, ResolutionStatus.RESOLVED, ResolutionReason.NONE),
+        (ResolutionOrigin.EXPLICIT_PROJECT_BINDING, ResolutionStatus.UNRESOLVED, ResolutionReason.EXPLICIT_TARGET_NOT_FOUND),
+        (ResolutionOrigin.EXPLICIT_PROJECT_BINDING, ResolutionStatus.UNSUPPORTED, ResolutionReason.UNSUPPORTED_BINDING),
+        (ResolutionOrigin.CANDIDATE_BACKED, ResolutionStatus.RESOLVED, ResolutionReason.NONE),
+        (ResolutionOrigin.CANDIDATE_BACKED, ResolutionStatus.AMBIGUOUS, ResolutionReason.MULTIPLE_CANDIDATES),
+        (ResolutionOrigin.FALLBACK_PROBE, ResolutionStatus.UNRESOLVED, ResolutionReason.NO_CANDIDATES),
+    ], start=1):
+        diagnostic = event(line=line, origin=origin, status=status, reason=reason)
+        collector.record_resolution(diagnostic)
+        collector.record_resolution(diagnostic)
+    summary = collector.origin_summary()
+    assert summary == ResolutionOriginSummary(6, 3, 2, 1)
+    assert summary.project_evidenced_sites == 5
+    assert summary.total_project_resolution_sites == (
+        summary.explicit_project_binding + summary.candidate_backed + summary.fallback_probe
+    )
+    outcomes = collector.summary()
+    assert outcomes == ResolutionSummary(6, 2, 2, 1, 1)
+    assert outcomes.total_project_resolution_sites == summary.total_project_resolution_sites == (
+        outcomes.resolved + outcomes.unresolved + outcomes.ambiguous + outcomes.unsupported
+    )
+    with pytest.raises(FrozenInstanceError):
+        summary.candidate_backed = 0

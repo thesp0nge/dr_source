@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Set, Optional
 from tree_sitter import Node
 
 from dr_source.core.context import AnalysisContext
-from dr_source.core.diagnostics import ResolutionDiagnostic
+from dr_source.core.diagnostics import ResolutionDiagnostic, ResolutionOrigin
 from dr_source.core.resolution import Resolution, ResolutionStatus
 from .frameworks import SpringBootMapper, JakartaEEMapper, JaxRsMapper, HibernateMapper
 
@@ -136,6 +136,8 @@ class TaintVisitor:
                 call_name=call_name,
                 status=resolution.status, reason=resolution.reason,
                 candidates=resolution.candidates,
+                origin=(ResolutionOrigin.CANDIDATE_BACKED if resolution.candidates
+                        else ResolutionOrigin.FALLBACK_PROBE),
             ))
 
     def _resolve_project_call(self, method_name: str) -> Resolution:

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from dr_source.core.resolution import ResolutionStatus
+from dr_source.core.diagnostics import ResolutionOrigin
 from dr_source.core.scanner import Scanner
 from dr_source.plugins.javascript.plugin import JavaScriptAstAnalyzer
 from dr_source.plugins.java.plugin import JavaAstAnalyzer
@@ -25,6 +26,7 @@ def test_real_rules_probe_logging_but_unconditionally_handle_java_framework_sink
     assert {(Path(event.file_path).name, event.line) for event in logging_sites} == {
         ("new_rules_test.js", 8), ("new_rules_test.js", 15), ("vulnerable_express.js", 16),
     }
+    assert all(event.origin is ResolutionOrigin.FALLBACK_PROBE for event in logging_sites)
     assert all(event.status is ResolutionStatus.UNRESOLVED and not event.candidates
                for event in logging_sites)
     java = scan_language(monkeypatch, "java", JavaAstAnalyzer)
@@ -58,4 +60,5 @@ def test_unnamed_javascript_chain_calls_have_distinct_source_spans(monkeypatch):
     }
     assert len({event.identity for event in site}) == 3
     assert all(event.status is ResolutionStatus.UNRESOLVED for event in site)
+    assert all(event.origin is ResolutionOrigin.FALLBACK_PROBE for event in events)
     assert len(events) == 45  # Previously 42 across the main JavaScript fixtures.

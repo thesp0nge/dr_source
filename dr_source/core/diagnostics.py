@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass
+from enum import Enum
 from typing import Dict, Optional, Tuple
 
 from dr_source.core.project_index import SymbolId
@@ -10,9 +11,20 @@ from dr_source.core.resolution import ResolutionReason, ResolutionStatus
 ResolutionSite = Tuple[str, str, Optional[int], Optional[int], Optional[int], Optional[int], str]
 
 
+class ResolutionOrigin(Enum):
+    """Evidence for attempting project resolution, independent of its outcome."""
+
+    EXPLICIT_PROJECT_BINDING = "explicit_project_binding"
+    CANDIDATE_BACKED = "candidate_backed"
+    FALLBACK_PROBE = "fallback_probe"
+
+
 @dataclass(frozen=True)
 class ResolutionDiagnostic:
     """Immutable call-site evidence. Candidate order is supplied by the resolver.
+
+    Origin describes attempt evidence, independently of status/reason, and is
+    payload rather than source-site identity. Conflicting origins are errors.
 
     Positions span the complete call expression: one-based lines and zero-based
     UTF-8 byte columns, with an exclusive end. Genuinely unavailable coordinates
@@ -30,6 +42,7 @@ class ResolutionDiagnostic:
     call_name: str
     status: ResolutionStatus
     reason: ResolutionReason
+    origin: ResolutionOrigin
     candidates: Tuple[SymbolId, ...] = ()
     end_line: Optional[int] = None
     end_column: Optional[int] = None
@@ -39,6 +52,8 @@ class ResolutionDiagnostic:
             raise ValueError("A resolution diagnostic requires a source file")
         if not isinstance(self.status, ResolutionStatus) or not isinstance(self.reason, ResolutionReason):
             raise TypeError("Diagnostic status and reason must use resolution enums")
+        if not isinstance(self.origin, ResolutionOrigin):
+            raise TypeError("Diagnostic origin must use ResolutionOrigin")
         if not isinstance(self.candidates, tuple) or any(
             not isinstance(candidate, SymbolId) for candidate in self.candidates
         ):
@@ -58,6 +73,20 @@ class ResolutionSummary:
     unresolved: int
     ambiguous: int
     unsupported: int
+
+
+@dataclass(frozen=True)
+class ResolutionOriginSummary:
+    """An orthogonal decomposition of the same sites counted by ResolutionSummary."""
+
+    total_project_resolution_sites: int
+    explicit_project_binding: int
+    candidate_backed: int
+    fallback_probe: int
+
+    @property
+    def project_evidenced_sites(self) -> int:
+        return self.explicit_project_binding + self.candidate_backed
 
 
 class ResolutionDiagnosticConflict(ValueError):
@@ -94,4 +123,15 @@ class ScanDiagnostics:
             len(self._resolution_events),
             counts[ResolutionStatus.RESOLVED], counts[ResolutionStatus.UNRESOLVED],
             counts[ResolutionStatus.AMBIGUOUS], counts[ResolutionStatus.UNSUPPORTED],
+        )
+
+    def origin_summary(self) -> ResolutionOriginSummary:
+        counts = {origin: 0 for origin in ResolutionOrigin}
+        for event in self._resolution_events.values():
+            counts[event.origin] += 1
+        return ResolutionOriginSummary(
+            len(self._resolution_events),
+            counts[ResolutionOrigin.EXPLICIT_PROJECT_BINDING],
+            counts[ResolutionOrigin.CANDIDATE_BACKED],
+            counts[ResolutionOrigin.FALLBACK_PROBE],
         )

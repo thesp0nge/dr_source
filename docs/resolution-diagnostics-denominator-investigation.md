@@ -5,7 +5,9 @@ using DRSource 0.171.0 and Python 3.9.6. The original investigation changed no
 production code. Tables and snapshot below now reflect a source-span identity
 correction based on baseline `6933aa0c79ab5444e8794bd393f339d8ef1c6525` (154 tests).
 Resolution decisions, recording boundaries, security knowledge, finding output,
-and semantic classifications are unchanged.
+and semantic classifications are unchanged. The provenance implementation below
+was validated against baseline `04267e9eafd541033491999dedb08b626ac2c583`
+(162 passing tests), again on Python 3.9.6. The snapshot now also includes origin.
 
 ## Current semantics
 
@@ -19,6 +21,8 @@ zero-based UTF-8 byte columns, and an exclusive end. Unavailable coordinates rem
 Equivalent revisits across detector categories and recursive simulation count
 once. Status/reason/candidates describe the existing decision, not the reason
 for invoking project lookup or a proof that the target belongs to the project.
+The separate immutable origin payload now records the evidence for the attempt;
+it does not participate in source-site identity.
 
 Each detector has its own sinks. A call handled as a sink by one detector can
 reach project lookup in another. Assignment source/sanitizer recognition does
@@ -88,9 +92,9 @@ PYTHONPATH=. python tests/tools/audit_resolution_diagnostics.py > /tmp/resolutio
 ```
 
 The investigation-only helper captures each event's language, repository-relative
-file, start/end line and column, call name, status, reason, candidate count/identities, and
+file, start/end line and column, call name, origin, status, reason, candidate count/identities, and
 source line. It also captures Python binding facts and aggregates by
-`(language, status, reason, call_name)`. It does not classify calls automatically
+`(language, origin, status, reason, call_name)`. It does not classify calls automatically
 or modify production reporting. The complete 183-site snapshot, retaining the original manual classifications,
 is [resolution-diagnostics-denominator-events.tsv](resolution-diagnostics-denominator-events.tsv).
 Its A/B/C annotations are fixture-specific observations, not an API allowlist.
@@ -264,41 +268,100 @@ only identity splitting adds three B rows, with no classification changes.
    the known `User` class is absent from the function index. Neither presence
    nor absence of a diagnostic alone identifies project understanding.
 
-## Resolution provenance
+## Resolution provenance implementation and measured rerun
 
-A structured attempt-origin/evidence dimension would materially improve honesty.
-`UNRESOLVED/NO_CANDIDATES` currently groups an unindexed project constructor,
-obvious library calls, and unknown receivers. `ResolutionStatus` should continue
-answering what decision was made. Provenance should separately answer which
-existing facts justified entering the project-resolution path.
+`ResolutionOrigin` is now diagnostic payload, separate from status/reason.
+Classification precedence is explicit binding to a known project module, then
+same-language candidates from the actual lookup, then fallback probe. The values
+are `EXPLICIT_PROJECT_BINDING`, `CANDIDATE_BACKED`, and `FALLBACK_PROBE`.
+Project-evidenced means the first two origins combined. This is evidence for
+attempting project lookup, not target ownership or exact semantic binding.
+Fallback is not an external-library classification.
 
-Distinguish conceptually:
+Python preserves project-binding evidence when the target is missing, ambiguous,
+or the known binding is unsupported. Unsupported aliases to absent/non-project
+modules remain unsupported but fallback; syntactic imports alone do not prove
+project ownership. Java and JavaScript classify only from their existing
+same-language candidate tuples. No call boundaries, candidate selection, warning,
+source/sink rules, or finding semantics were changed. No second candidate lookup
+was added for diagnostics. See [ADR 0003](adr/0003-structured-scan-diagnostics.md).
 
-- An explicit binding to a **known project module**, including a target
-  symbol absent from that module. A syntactic import alone is insufficient:
-  `os`, Flask, and third-party imports do not establish project ownership.
-- Candidate-backed lookup under the existing language semantics. This is evidence
-  of a project candidate, not proof of receiver binding or exact semantic target.
-- An unconstrained fallback probe, including zero-candidate/unknown-name probes.
+Reproduce the determinism check from the repository root:
 
-`EXPLICIT_PROJECT_BINDING`, `INDEX_CANDIDATE`, and `GLOBAL_FALLBACK` are design
-examples only. Candidate presence is already available in the payload, so an
-exclusive enum might mix *attempt trigger* with *evidence discovered by the
-attempt*. Prefer discussing a stable origin plus existing candidate evidence,
-or clearly documenting precedence/overlap, before choosing a schema.
-Classification should be derived from facts already used in resolution; it must
-not add a second lookup or change candidate selection. Unsupported known bindings
-need care: a known unsupported alias can refer to an external module, so it must
-not automatically become “explicit project target.”
+```bash
+PYTHONPATH=. python tests/tools/audit_resolution_diagnostics.py > /tmp/resolution-audit-1.json
+PYTHONPATH=. python tests/tools/audit_resolution_diagnostics.py > /tmp/resolution-audit-2.json
+cmp /tmp/resolution-audit-1.json /tmp/resolution-audit-2.json
+```
 
-The corpus would yield one explicit-project-bound site and three other
-candidate-backed sites. Provenance still cannot automatically recover the local
-class constructor's intent or classify the four unknown receivers without
-additional frontend facts. It is useful separation, not a universal ownership
-resolver. Stable origin fields must also remain deterministic across detector
-and recursive revisits; do not encode traversal-dependent “last trigger wins.”
+Two fresh runs of the six fixture scans produced byte-identical JSON, including
+every event, both summaries, aggregate, log list, and finding count. A separate
+run against baseline HEAD, projected without the new origin fields/summary,
+matched all existing event payloads, status summaries, file counts, warning/error
+lists, and finding counts. The TSV adds one origin column and retains all 183
+identities, original A/B/C annotations, and evidence. There are still 51 findings
+and no warnings/errors in the corpus audit.
 
-## Metric options
+| Population | All probes | Resolved | Unresolved | Ambiguous | Unsupported |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| All probes | 183 | 4 | 179 | 0 | 0 |
+| Explicit project binding | 1 | 1 | 0 | 0 | 0 |
+| Candidate backed | 3 | 3 | 0 | 0 | 0 |
+| Fallback probes | 179 | 0 | 179 | 0 | 0 |
+| Project-evidenced grouping | 4 | 4 | 0 | 0 | 0 |
+
+| Language | All probes | Explicit project binding | Candidate backed | Fallback probes |
+| --- | ---: | ---: | ---: | ---: |
+| Python | 91 | 1 | 1 | 89 |
+| Java | 39 | 0 | 1 | 38 |
+| JavaScript | 53 | 0 | 1 | 52 |
+| Total | 183 | 1 | 3 | 179 |
+
+Both independent decompositions hold: `183 = 1 + 3 + 179` by origin and
+`183 = 4 + 179 + 0 + 0` by status. All fallback outcomes here have reason
+`NO_CANDIDATES`; all four project-evidenced outcomes have reason `NONE`.
+The static corpus contains no ambiguous or unsupported attempts and no explicit
+missing target. Focused real-scan tests separately verify explicit missing
+symbols (`EXPLICIT_TARGET_NOT_FOUND`), unsupported project aliases
+(`UNSUPPORTED_BINDING`), unsupported forms, explicit ambiguity, and global
+candidate ambiguity. Zero occurrences in this corpus do not validate those
+semantics by themselves.
+
+### Comparison with the retained human audit
+
+| Human group | Explicit project binding | Candidate backed | Fallback probes |
+| --- | ---: | ---: | ---: |
+| A: clearly project | 1 | 3 | 1 |
+| B: clearly non-project | 0 | 0 | 174 |
+| C: unknown | 0 | 0 | 4 |
+
+All four machine-evidenced project sites land in project-evidenced origins:
+Python's imported `vulnerable_execute` is explicit; forward `send_email`, Java's
+`runQuery`, and JavaScript's `runCommand` are candidate backed. Of the five
+human-evidenced project sites, one remains fallback: Python's local `User()`
+constructor is not in the function index. No clearly non-project site appears
+in project-evidenced origins in this corpus. All four unknown calls remain
+fallback: two `data.encode` sites, `User.objects.get`, and `user.save`.
+
+The important mismatches/limitations are preserved honestly:
+
+- Known project `User()` is unresolved fallback; origin cannot invent class
+  indexing or constructor semantics.
+- The JavaScript CommonJS-imported `runCommand` is candidate backed, not explicit:
+  current resolution does not use that import binding.
+- Python's same-file forward `send_email` is candidate backed even though it is
+  not inter-file. Already registered locals bypass lookup; source order still
+  affects which calls enter this population.
+- Dotted JavaScript and unnamed chained calls remain exact-name fallback probes;
+  provenance does not recover missing names or receiver identities.
+- Unsupported aliases to non-project/absent modules can be unsupported fallback
+  probes (verified separately, absent here). This is not an external classifier.
+
+These numbers show useful separation for these fixtures, not a guarantee that
+name-only candidates avoid false project evidence on other source trees. No
+production behavior was adjusted to improve this table.
+
+## Metric options considered in the original investigation
 
 | Option | Observed effect | Benefits | Costs/limitations |
 | --- | --- | --- | --- |
@@ -317,23 +380,17 @@ index facts cannot always establish that evidence.
 
 ## Recommendation
 
-Choose Option C as the direction for the **next design discussion**, retaining
-all observations. Before ScanResult/UI exposure:
+Option C is implemented: preserve all probes and separately expose immutable
+origin evidence internally. The provenance model is trustworthy enough to
+proceed to a separately scoped ScanResult exposure design. No additional
+resolution semantic change is required before exposing these accurately named
+observations. Exposure must retain both status and origin, the denominator
+invariants, and the distinction between project-evidenced and all project calls.
 
-1. Define attempt origin independently of resolution status, using existing
-   project binding and candidate facts. Keep fallback probes and unknowns visible.
-2. Specify user metrics as separately labeled resolver-probe counts,
-   project-evidenced lookup outcomes, and fallback outcomes. Publish denominator
-   definitions and limitations; none is “percentage of application understood.”
-3. Source-span identity now separates the observed chained calls. Keep tests for
-   complete spans and genuinely unavailable-position fallbacks; do not assume
-   provenance alone supplies missing source-location or call-name information.
-4. Validate meaningful zero-candidate explicit targets, unsupported bindings,
-   category-dependent revisits, and recursion against the existing invariants.
-   Add further corpora before making general population claims.
-
-Do not introduce a growing `print`/`println`/`console.log` blacklist. Existing
-security semantics can be discussed separately where they justify bypass, with
-finding compatibility tests, but reclassifying calls is not necessary to retain
-honest observability. Structured provenance and user metrics remain unimplemented. The only subsequent
-implementation reported here corrects source-span identity.
+Do not present fallback as external, treat candidate-backed matches as proven
+binding, or turn these counts into an application-understanding/quality score.
+The unindexed constructor, unknown receivers, source-order-dependent local
+bypass, and empty JavaScript call names remain frontend limitations. Expand
+corpus validation before generalizing population claims; improve those semantics
+only through separately designed and tested work. No CLI metrics, ScanResult,
+persistence, or reporting were added by this implementation.

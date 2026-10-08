@@ -1,10 +1,10 @@
 import ast
 import logging
 import os
-from typing import List, Set, Dict, Any, Optional
+from typing import List, Set, Dict, Any, Optional, Tuple
 
 from dr_source.core.context import AnalysisContext
-from dr_source.core.diagnostics import ResolutionDiagnostic
+from dr_source.core.diagnostics import ResolutionDiagnostic, ResolutionOrigin
 from dr_source.core.resolution import Resolution, ResolutionReason, ResolutionStatus
 
 logger = logging.getLogger(__name__)
@@ -172,7 +172,7 @@ class PythonTaintVisitor(ast.NodeVisitor):
             return "source", name
         return None, None
 
-    def _record_resolution_diagnostic(self, node: ast.Call, call_name: str, resolution: Resolution) -> None:
+    def _record_resolution_diagnostic(self, node: ast.Call, call_name: str, resolution: Resolution, origin: ResolutionOrigin) -> None:
         # Legacy standalone visitors without scan context retain lookup behavior.
         if self.analysis_context is not None:
             line, column = getattr(node, "lineno", None), getattr(node, "col_offset", None)
@@ -182,10 +182,13 @@ class PythonTaintVisitor(ast.NodeVisitor):
                 line=line, column=column, end_line=end_line, end_column=end_column,
                 call_name=call_name,
                 status=resolution.status, reason=resolution.reason,
-                candidates=resolution.candidates,
+                candidates=resolution.candidates, origin=origin,
             ))
 
     def _resolve_project_call(self, node: ast.Call) -> Resolution:
+        return self._resolve_project_attempt(node)[0]
+
+    def _resolve_project_attempt(self, node: ast.Call) -> Tuple[Resolution, ResolutionOrigin]:
         """Resolve a project call using Python context and indexed candidates.
 
         Local functions are intentionally handled by ``self.functions`` in
@@ -194,7 +197,7 @@ class PythonTaintVisitor(ast.NodeVisitor):
         """
         fn = self._get_full_call_name(node)
         if self.project_index is None:
-            return Resolution.unresolved()
+            return Resolution.unresolved(), ResolutionOrigin.FALLBACK_PROBE
 
         target_file = None
         target_name = fn
@@ -206,16 +209,25 @@ class PythonTaintVisitor(ast.NodeVisitor):
             target_name = bound_name or fn
 
         if not explicit_binding:
-            return self.project_index.resolve_unique(fn, language="python")
+            resolution = self.project_index.resolve_unique(fn, language="python")
+            origin = (ResolutionOrigin.CANDIDATE_BACKED if resolution.candidates
+                      else ResolutionOrigin.FALLBACK_PROBE)
+            return resolution, origin
+
+        # Unsupported aliases are recognized even for absent/external modules.
+        # Only an indexed module supplies positive project-binding evidence.
+        binding = self.python_context.binding(self.current_file, fn.split(".")[0])
+        origin = (ResolutionOrigin.EXPLICIT_PROJECT_BINDING
+                  if binding is not None and self.python_context.target_file(binding.module_name) is not None
+                  else ResolutionOrigin.FALLBACK_PROBE)
 
         if target_file is None:
-            binding = self.python_context.binding(self.current_file, fn.split(".")[0])
             reason = (
                 ResolutionReason.UNSUPPORTED_BINDING
                 if binding is not None and not binding.supported
                 else ResolutionReason.UNSUPPORTED_CALL_FORM
             )
-            return Resolution.unsupported(reason)
+            return Resolution.unsupported(reason), origin
 
         candidates = [
             candidate
@@ -225,10 +237,10 @@ class PythonTaintVisitor(ast.NodeVisitor):
         ]
         candidate_ids = tuple(candidate.symbol_id for candidate in candidates)
         if len(candidates) == 1:
-            return Resolution.resolved(candidate_ids[0], candidate_ids)
+            return Resolution.resolved(candidate_ids[0], candidate_ids), origin
         if len(candidates) > 1:
-            return Resolution.ambiguous(candidate_ids)
-        return Resolution.unresolved(reason=ResolutionReason.EXPLICIT_TARGET_NOT_FOUND)
+            return Resolution.ambiguous(candidate_ids), origin
+        return Resolution.unresolved(reason=ResolutionReason.EXPLICIT_TARGET_NOT_FOUND), origin
 
     def _log_project_resolution(self, name: str, resolution: Resolution) -> None:
         """Retain the existing resolver warnings while decisions use statuses."""
@@ -298,8 +310,8 @@ class PythonTaintVisitor(ast.NodeVisitor):
         else:
             f_def = self.functions.get(fn)
             if not f_def and self.project_index and self.depth < self.max_depth:
-                resolution = self._resolve_project_call(node)
-                self._record_resolution_diagnostic(node, fn, resolution)
+                resolution, origin = self._resolve_project_attempt(node)
+                self._record_resolution_diagnostic(node, fn, resolution, origin)
                 self._log_project_resolution(fn, resolution)
                 if resolution.status is ResolutionStatus.RESOLVED and resolution.symbol is not None:
                     definition = self.project_index.get_definition(resolution.symbol)

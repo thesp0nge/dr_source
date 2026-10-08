@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from dr_source.core.diagnostics import ResolutionDiagnostic, ResolutionDiagnosticConflict, ResolutionSummary
+from dr_source.core.diagnostics import ResolutionDiagnostic, ResolutionDiagnosticConflict, ResolutionSummary, ResolutionOrigin
 from dr_source.core.resolution import ResolutionReason, ResolutionStatus
 from dr_source.core.scanner import Scanner
 from dr_source.plugins.python.plugin import PythonAstAnalyzer
@@ -69,6 +69,10 @@ def scan_project(monkeypatch, root, language, *, real_knowledge=False, reverse=F
     assert summary.total_project_resolution_sites == (
         summary.resolved + summary.unresolved + summary.ambiguous + summary.unsupported
     )
+    origins = scanner.diagnostics.origin_summary()
+    assert origins.total_project_resolution_sites == summary.total_project_resolution_sites == (
+        origins.explicit_project_binding + origins.candidate_backed + origins.fallback_probe
+    )
     return scanner
 
 
@@ -103,6 +107,8 @@ def test_scanner_records_exact_existing_project_outcome(monkeypatch, tmp_path, l
     expression = 'helper.projectTarget("constant")' if language == "java" else "projectTarget('constant')"
     end = (position[0], position[1] + len(expression.encode("utf-8")))
     assert event.identity == (language, str(tmp_path / ("app" + extension)), *position, *end, "projectTarget")
+    assert event.origin is (ResolutionOrigin.FALLBACK_PROBE if status is ResolutionStatus.UNRESOLVED
+                            else ResolutionOrigin.CANDIDATE_BACKED)
     expected = scanner.project_index.resolve_unique("projectTarget", language)
     assert (event.status, event.reason, event.candidates) == (expected.status, expected.reason, expected.candidates)
     counts = {ResolutionStatus.RESOLVED: (1, 0, 0, 0),
@@ -121,6 +127,7 @@ def test_scanner_records_exact_existing_project_outcome(monkeypatch, tmp_path, l
     ("from service import projectTarget", "projectTarget", True, ResolutionStatus.RESOLVED, ResolutionReason.NONE),
     ("import service", "service.projectTarget", True, ResolutionStatus.RESOLVED, ResolutionReason.NONE),
     ("from service import projectTarget", "projectTarget", False, ResolutionStatus.UNRESOLVED, ResolutionReason.EXPLICIT_TARGET_NOT_FOUND),
+    ("import service", "service.projectTarget", False, ResolutionStatus.UNRESOLVED, ResolutionReason.EXPLICIT_TARGET_NOT_FOUND),
     ("from service import projectTarget as run", "run", True, ResolutionStatus.UNSUPPORTED, ResolutionReason.UNSUPPORTED_BINDING),
     ("import service as svc", "svc.projectTarget", True, ResolutionStatus.UNSUPPORTED, ResolutionReason.UNSUPPORTED_BINDING),
 ])
@@ -131,6 +138,7 @@ def test_python_import_events_copy_decision(monkeypatch, tmp_path, imports, name
     event, = scanner.diagnostics.resolution_events()
     assert event.identity == ("python", str(tmp_path / "app.py"), 2, 0,
                               2, len(f"{name}('constant')"), name)
+    assert event.origin is ResolutionOrigin.EXPLICIT_PROJECT_BINDING
     assert event.status is status
     assert event.reason is reason
     if status is ResolutionStatus.RESOLVED:
@@ -145,6 +153,7 @@ def test_javascript_dotted_member_remains_exact_unresolved_lookup(monkeypatch, t
     write(tmp_path, "service.js", programs("javascript")[1])
     scanner = scan_project(monkeypatch, tmp_path, "javascript")
     event, = scanner.diagnostics.resolution_events()
+    assert event.origin is ResolutionOrigin.FALLBACK_PROBE
     assert event.call_name == "service.projectTarget"
     assert event.status is ResolutionStatus.UNRESOLVED
     assert event.reason is ResolutionReason.NO_CANDIDATES
@@ -192,6 +201,9 @@ def test_recursive_visitors_share_context_file_and_deduplicate(monkeypatch, tmp_
     extension = LANGUAGES[language][2]
     events = scanner.diagnostics.resolution_events()
     assert scanner.diagnostics.summary() == ResolutionSummary(3, 3, 0, 0, 0)
+    expected_origin = (ResolutionOrigin.EXPLICIT_PROJECT_BINDING if language == "python"
+                       else ResolutionOrigin.CANDIDATE_BACKED)
+    assert all(event.origin is expected_origin for event in events)
     assert [Path(event.file_path).name for event in events] == ["app" + extension, "app" + extension, "service" + extension]
     assert [event.call_name for event in events] == ["projectTarget", "projectTarget", "leafTarget"]
     assert [(event.line, event.column) for event in events] == {
@@ -236,6 +248,7 @@ def test_existing_external_source_and_sanitizer_lookup_is_characterized(monkeypa
     scanner = scan_project(monkeypatch, tmp_path, language)
     events = scanner.diagnostics.resolution_events()
     assert [event.call_name for event in events] == names
+    assert all(event.origin is ResolutionOrigin.FALLBACK_PROBE for event in events)
     assert all(event.status is ResolutionStatus.UNRESOLVED for event in events)
     assert all(event.reason is ResolutionReason.NO_CANDIDATES for event in events)
     assert scanner.diagnostics.summary() == ResolutionSummary(len(names), 0, len(names), 0, 0)
@@ -250,7 +263,7 @@ def test_conflicting_diagnostics_propagate_through_plugin_and_scanner(monkeypatc
         scanner.diagnostics.record_resolution(ResolutionDiagnostic(
             language, str(tmp_path / ("app" + LANGUAGES[language][2])),
             line, column, "projectTarget", ResolutionStatus.UNSUPPORTED,
-            ResolutionReason.UNSUPPORTED_CALL_FORM,
+            ResolutionReason.UNSUPPORTED_CALL_FORM, ResolutionOrigin.FALLBACK_PROBE,
             end_line=line, end_column=column + len(
                 'helper.projectTarget("constant")' if language == "java" else "projectTarget('constant')"
             ),
@@ -342,3 +355,99 @@ def test_python_ast_without_end_positions_records_fallback(monkeypatch, tmp_path
     event, = context.diagnostics.resolution_events()
     assert event.identity == ("python", str(tmp_path / "app.py"), 1, 0, None, None, "missing")
     assert context.diagnostics.summary() == ResolutionSummary(1, 0, 1, 0, 0)
+
+
+@pytest.mark.parametrize("call", ["projectTarget", "service.projectTarget"])
+def test_python_explicit_binding_ambiguous_keeps_origin(monkeypatch, tmp_path, call):
+    imports = "from service import projectTarget" if call == "projectTarget" else "import service"
+    write(tmp_path, "app.py", f"{imports}\n{call}('constant')\n")
+    write(tmp_path, "service.py", programs("python")[1] * 2)
+    scanner = scan_project(monkeypatch, tmp_path, "python")
+    event, = scanner.diagnostics.resolution_events()
+    assert event.origin is ResolutionOrigin.EXPLICIT_PROJECT_BINDING
+    assert event.status is ResolutionStatus.AMBIGUOUS
+    assert event.reason is ResolutionReason.MULTIPLE_CANDIDATES
+    assert len(event.candidates) == 2
+
+
+@pytest.mark.parametrize("imports, call", [
+    ("import service", "service.projectTarget.extra"),
+    ("from service import projectTarget", "projectTarget.extra"),
+])
+def test_python_unsupported_project_call_form_keeps_origin(monkeypatch, tmp_path, imports, call):
+    write(tmp_path, "app.py", f"{imports}\n{call}('constant')\n")
+    write(tmp_path, "service.py", programs("python")[1])
+    scanner = scan_project(monkeypatch, tmp_path, "python")
+    event, = scanner.diagnostics.resolution_events()
+    assert event.origin is ResolutionOrigin.EXPLICIT_PROJECT_BINDING
+    assert event.status is ResolutionStatus.UNSUPPORTED
+    assert event.reason is ResolutionReason.UNSUPPORTED_CALL_FORM
+
+
+@pytest.mark.parametrize("imports, call, status, reason", [
+    ("from absent import execute as run", "run", ResolutionStatus.UNSUPPORTED, ResolutionReason.UNSUPPORTED_BINDING),
+    ("import absent as svc", "svc.execute", ResolutionStatus.UNSUPPORTED, ResolutionReason.UNSUPPORTED_BINDING),
+    ("from absent import execute", "execute", ResolutionStatus.UNRESOLVED, ResolutionReason.NO_CANDIDATES),
+    ("import absent", "absent.execute", ResolutionStatus.UNRESOLVED, ResolutionReason.NO_CANDIDATES),
+])
+def test_python_import_without_project_module_is_fallback(monkeypatch, tmp_path, imports, call, status, reason):
+    write(tmp_path, "app.py", f"{imports}\n{call}('constant')\n")
+    scanner = scan_project(monkeypatch, tmp_path, "python")
+    event, = scanner.diagnostics.resolution_events()
+    assert event.origin is ResolutionOrigin.FALLBACK_PROBE
+    assert event.status is status
+    assert event.reason is reason
+    assert event.candidates == ()
+
+
+@pytest.mark.parametrize("language", LANGUAGES)
+def test_foreign_language_candidates_do_not_back_origin(monkeypatch, tmp_path, language):
+    write(tmp_path, "app" + LANGUAGES[language][2], programs(language)[0])
+    def foreign_candidate(scanner):
+        scanner.project_index.register_function("projectTarget", "foreign", object(),
+                                                "java" if language != "java" else "python")
+    scanner = scan_project(monkeypatch, tmp_path, language, before_scan=foreign_candidate)
+    event, = scanner.diagnostics.resolution_events()
+    assert event.origin is ResolutionOrigin.FALLBACK_PROBE
+    assert event.status is ResolutionStatus.UNRESOLVED
+    assert event.reason is ResolutionReason.NO_CANDIDATES
+    assert event.candidates == ()
+
+
+@pytest.mark.parametrize("language", LANGUAGES)
+def test_origin_reuses_single_candidate_discovery(monkeypatch, tmp_path, language):
+    extension = LANGUAGES[language][2]
+    caller, target, _ = programs(language)
+    write(tmp_path, "app" + extension, caller)
+    write(tmp_path, "service" + extension, target)
+    lookups = []
+    def observe(scanner):
+        original = scanner.project_index.find_candidates
+        def candidates(name, language=None):
+            lookups.append((name, language))
+            return original(name, language)
+        monkeypatch.setattr(scanner.project_index, "find_candidates", candidates)
+    scanner = scan_project(monkeypatch, tmp_path, language, before_scan=observe)
+    event, = scanner.diagnostics.resolution_events()
+    assert event.origin is ResolutionOrigin.CANDIDATE_BACKED
+    assert lookups == [("projectTarget", language)]
+
+
+def test_python_explicit_missing_does_not_fall_back_to_other_module(monkeypatch, tmp_path):
+    write(tmp_path, "app.py", "from service import projectTarget\nprojectTarget('constant')\n")
+    write(tmp_path, "service.py", "value = 1\n")
+    write(tmp_path, "other.py", programs("python")[1])
+    lookups = []
+    def observe(scanner):
+        original = scanner.project_index.find_candidates
+        def candidates(name, language=None):
+            lookups.append((name, language))
+            return original(name, language)
+        monkeypatch.setattr(scanner.project_index, "find_candidates", candidates)
+    scanner = scan_project(monkeypatch, tmp_path, "python", before_scan=observe)
+    event, = scanner.diagnostics.resolution_events()
+    assert event.origin is ResolutionOrigin.EXPLICIT_PROJECT_BINDING
+    assert event.status is ResolutionStatus.UNRESOLVED
+    assert event.reason is ResolutionReason.EXPLICIT_TARGET_NOT_FOUND
+    assert event.candidates == ()
+    assert lookups == [("projectTarget", "python")]

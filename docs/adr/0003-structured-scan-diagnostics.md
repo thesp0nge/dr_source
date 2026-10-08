@@ -96,6 +96,65 @@ still raise `ResolutionDiagnosticConflict`. There is no persisted-format or CLI
 migration: diagnostics have not been exposed through those contracts. Resolution,
 findings, recording boundaries, and metric classification remain unchanged.
 
+## Resolution provenance implementation
+
+`ResolutionDiagnostic.origin` is a required immutable `ResolutionOrigin` value
+owned by diagnostics, not by `Resolution` or `ProjectIndex`. Status and reason
+answer **how resolution ended**. Origin answers **which evidence supported the
+attempt** under the current frontend semantics. It is an exclusive classification
+with deterministic precedence, independent of final status:
+
+1. `EXPLICIT_PROJECT_BINDING`: Python's recorded import binding identifies a
+   known project module. This includes a missing target, ambiguous target,
+   unsupported alias, or unsupported call form within that binding. An alias
+   stays unsupported; provenance does not implement alias resolution.
+2. `CANDIDATE_BACKED`: without explicit project binding, the actual lookup
+   discovered one or more relevant same-language indexed symbols. A singleton
+   name match is evidence, not proof of receiver or module binding.
+3. `FALLBACK_PROBE`: neither positive project-binding evidence nor candidate
+   evidence supported the attempt. This does **not** mean external library:
+   unindexed project classes, unknown receivers, builtins, and libraries can
+   all occupy this population.
+
+Python uses the binding facts already consulted by its resolver and returns
+`(Resolution, ResolutionOrigin)` from its internal attempt helper. The existing
+`_resolve_project_call()` remains a Resolution-only adapter for direct callers.
+The call visitor consumes the pair at its existing recording boundary. An
+unsupported syntactic alias to an absent/non-project module remains unsupported,
+with fallback provenance: recognizing an import is not proof of project ownership.
+No extra candidate lookup is performed, including for rejected aliases. Supported
+imports to absent modules retain their existing global fallback behavior.
+
+Java and JavaScript classify from the actual language-scoped candidate tuple.
+Java still uses bare method names; JavaScript still uses exact syntactic names,
+including dotted/empty names. Neither infers explicit project binding from
+imports, receivers, class/package names, or dotted syntax. Python's explicit
+binding takes precedence even if target-file narrowing leaves zero candidates.
+Future narrowing must preserve candidate evidence if it discards candidates;
+current non-explicit paths do not have a separate narrowing stage.
+
+Origin is payload, not source-site identity. Identical complete payloads
+including origin deduplicate. Conflicting origins at one full-span source site
+raise `ResolutionDiagnosticConflict`; no last-write-wins or extra site is created.
+Recursive and detector-category revisits use the same invariant.
+
+`ScanDiagnostics.summary()` retains the frozen status summary unchanged.
+`origin_summary()` returns a frozen `ResolutionOriginSummary` with total,
+`explicit_project_binding`, `candidate_backed`, and `fallback_probe` counts.
+Both decompositions count exactly the same event population:
+
+```text
+total_project_resolution_sites = resolved + unresolved + ambiguous + unsupported
+total_project_resolution_sites = explicit_project_binding + candidate_backed + fallback_probe
+project_evidenced_sites = explicit_project_binding + candidate_backed
+```
+
+Project-evidenced sites are a grouping, not another origin and not all project
+calls. No ratio, quality score, CLI rendering, persistence, ScanResult, finding
+model change, or resolution behavior change is introduced. Internal event
+constructors must now provide origin; existing status-summary consumers need
+no migration. Diagnostics have no public persisted format to migrate.
+
 ## Context
 
 DRSource now has a common immutable `Resolution` result. Python, Java, and
@@ -212,6 +271,7 @@ class ResolutionDiagnostic:
     call_name: str
     status: ResolutionStatus
     reason: ResolutionReason
+    origin: ResolutionOrigin
     candidates: Tuple[SymbolId, ...]
 ```
 
@@ -259,7 +319,8 @@ Use an explicit scan-scoped `ScanDiagnostics` owned by `Scanner`:
 class ScanDiagnostics:
     def record_resolution(self, event: ResolutionDiagnostic) -> None: ...
     def resolution_events(self) -> Tuple[ResolutionDiagnostic, ...]: ...
-    def summary(self) -> Mapping[str, int]: ...
+    def summary(self) -> ResolutionSummary: ...
+    def origin_summary(self) -> ResolutionOriginSummary: ...
 ```
 
 The collector is created at scan start, lives until scan completion, deduplicates
