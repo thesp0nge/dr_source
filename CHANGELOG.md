@@ -35,6 +35,12 @@ and this project adheres to
 
 ### Changed
 
+- ASCII and SARIF `generate()` now accept `Sequence[Vulnerability]` rather than
+  database-shaped dictionaries. Direct callers must pass structured findings
+  (for example, `result.findings`); no dual-mode dictionary API is retained.
+  Current-scan console rendering also uses structured findings directly. Existing
+  report output and JSON schemas remain stable; JSON retains an explicit
+  compatibility serializer. This API evolution targets `0.172.0` (MINOR).
 - Current-scan CLI/reporting consumes `ScanResult` directly instead of reloading
   findings from SQLite, using canonical result presentation order. Existing
   report schemas, SQLite writes, and database-backed history/compare are retained.

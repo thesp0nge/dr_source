@@ -1,6 +1,9 @@
 # dr_source/reports/sarif.py
 import json
 from datetime import datetime
+from typing import Sequence
+
+from dr_source.api import Vulnerability
 
 try:
     from importlib.metadata import PackageNotFoundError, version as get_version
@@ -9,35 +12,36 @@ except ImportError:
 
 
 class SARIFReport:
-    def generate(self, results):
+    def generate(self, findings: Sequence[Vulnerability]) -> str:
+        """Render structured findings without modifying their payloads."""
         try:
             package_version = get_version("dr_source")
         except PackageNotFoundError:
             package_version = "unknown"
         sarif_results = []
-        for res in results:
+        for finding in findings:
             sarif_results.append(
                 {
-                    "ruleId": res["vuln_type"],
+                    "ruleId": finding.vulnerability_type,
                     "level": "error",
                     "message": {
-                        "text": f"Possible {res['vuln_type']} vulnerability detected."
+                        "text": f"Possible {finding.vulnerability_type} vulnerability detected."
                     },
                     "locations": [
                         {
                             "physicalLocation": {
                                 "artifactLocation": {
-                                    "uri": res["file"],
+                                    "uri": finding.file_path,
                                     "uriBaseId": "%SRCROOT%",
                                 },
                                 "region": {
-                                    "startLine": res["line"],
-                                    "endLine": res["line"],
+                                    "startLine": finding.line_number,
+                                    "endLine": finding.line_number,
                                 },
                             }
                         }
                     ],
-                    "properties": {"details": res["match"]},
+                    "properties": {"details": finding.message},
                 }
             )
         sarif_report = {
@@ -51,8 +55,8 @@ class SARIFReport:
                             "version": package_version,
                             "informationUri": "https://github.com/thesp0nge/dr_source",
                             "rules": [
-                                {"id": res["vuln_type"], "name": res["vuln_type"]}
-                                for res in results
+                                {"id": finding.vulnerability_type, "name": finding.vulnerability_type}
+                                for finding in findings
                             ],
                         }
                     },

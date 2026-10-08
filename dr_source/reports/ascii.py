@@ -1,24 +1,27 @@
 # dr_source/reports/ascii.py
 import logging
+from typing import Sequence
+
+from dr_source.api import Vulnerability
 
 logger = logging.getLogger(__name__)
 
 
 class ASCIIReport:
-    def generate(self, results):
+    def generate(self, findings: Sequence[Vulnerability]) -> str:
         """
         Generates an ASCII table report as a string.
-        Expects results to be a list of dictionaries with keys: vuln_type, file, line.
+        Consumes structured findings without modifying their payloads.
         """
-        if not results:
+        if not findings:
             return "No vulnerabilities found."
 
         headers = ["Vulnerability", "File", "Line"]
         rows = []
-        for res in results:
-            vuln = res.get("vuln_type", "")
-            file = res.get("file", "")
-            line = str(res.get("line", ""))
+        for finding in findings:
+            vuln = finding.vulnerability_type
+            file = finding.file_path
+            line = str(finding.line_number)
             rows.append([vuln, file, line])
 
         # Try to use the tabulate library if available.

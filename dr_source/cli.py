@@ -21,8 +21,8 @@ except ImportError:
     from importlib_metadata import version as get_version
 
 
-def _finding_to_report_dict(finding: Vulnerability) -> dict:
-    """Adapt a current finding to the existing database-shaped report schema."""
+def _serialize_finding_for_json(finding: Vulnerability) -> dict:
+    """Serialize a finding using the established JSON compatibility schema."""
     # Preserve the historical join/split normalization, including empty traces
     # and delimiters within a trace step, without a database round trip.
     trace = " -> ".join(finding.trace)
@@ -213,26 +213,25 @@ def main(
     # Persistence identity still supplies export filenames; current output uses
     # the returned snapshot rather than reloading the just-written database rows.
     scan_id = scanner.scan_id
-    results_list_of_dicts = [_finding_to_report_dict(finding) for finding in result.findings]
     num_vulns = len(result.findings)
     num_files = result.metrics.files_selected
     scan_duration = result.metrics.duration_seconds
 
-    # 3. Reporting logic (now works with 'results_list_of_dicts')
+    # Reporters consume structured findings; JSON retains its compatibility schema.
     if export:
         project_name = scanner.db.project_name  # Get sanitized name
         out_file = output if output else f"{project_name}_scan_{scan_id}.{export}"
 
         if export == "sarif":
             reporter = SARIFReport()
-            report_content = reporter.generate(results_list_of_dicts)
+            report_content = reporter.generate(result.findings)
             with open(out_file, "w") as f:
                 f.write(report_content)
             click.echo(f"Results exported to {out_file}")
 
         elif export == "json":
             with open(out_file, "w") as f:
-                json.dump(results_list_of_dicts, f, indent=2)
+                json.dump([_serialize_finding_for_json(finding) for finding in result.findings], f, indent=2)
             click.echo(f"Results exported to {out_file}")
 
         elif export == "html":
@@ -240,7 +239,7 @@ def main(
 
         elif export == "ascii":
             reporter = ASCIIReport()
-            report_content = reporter.generate(results_list_of_dicts)
+            report_content = reporter.generate(result.findings)
             if output:
                 with open(out_file, "w") as f:
                     f.write(report_content)
@@ -259,18 +258,18 @@ def main(
     # Track counts for summary
     stats = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
 
-    for res in results_list_of_dicts:
-        sev = res.get('severity', 'INFO').upper()
+    for finding in result.findings:
+        sev = finding.severity.upper()
         stats[sev] = stats.get(sev, 0) + 1
         
         sev_style = click.style(f"[{sev}]", fg=severity_colors.get(sev, "white"), bold=True)
-        type_style = click.style(f"[{res.get('vuln_type')}]", fg="bright_white")
-        file_style = click.style(f"{res.get('file')}:{res.get('line')}", fg="blue")
+        type_style = click.style(f"[{finding.vulnerability_type}]", fg="bright_white")
+        file_style = click.style(f"{finding.file_path}:{finding.line_number}", fg="blue")
         
-        click.echo(f"{sev_style}{type_style} {file_style} -> {res.get('match')}")
+        click.echo(f"{sev_style}{type_style} {file_style} -> {finding.message}")
 
-        if show_trace and res.get('trace'):
-            trace_str = " -> ".join(res["trace"]) if isinstance(res["trace"], list) else res["trace"]
+        if show_trace and " -> ".join(finding.trace):
+            trace_str = " -> ".join(finding.trace)
             click.echo(click.style("    Trace: ", dim=True) + trace_str)
 
     # 5. Professional Summary Table

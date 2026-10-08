@@ -71,10 +71,10 @@ def test_exports_match_persisted_representation(current_scan, format):
         assert set(rows[0]) == {'file', 'vuln_type', 'match', 'line', 'severity', 'plugin_name', 'trace'}
         assert isinstance(json.loads(path.read_text())[0]['trace'], list)
     elif format == 'ascii':
-        assert path.read_text() == ASCIIReport().generate(rows)
+        assert path.read_text() == ASCIIReport().generate(result.findings)
     else:
         actual = json.loads(path.read_text())['runs'][0]
-        expected = json.loads(SARIFReport().generate(rows))['runs'][0]
+        expected = json.loads(SARIFReport().generate(result.findings))['runs'][0]
         assert actual['results'] == expected['results']
         assert actual['tool'] == expected['tool']
     scanner.db.get_vulnerabilities_for_scan.assert_not_called()
@@ -87,7 +87,7 @@ def test_default_filename_and_ascii_stdout(current_scan, monkeypatch):
     assert output.exit_code == 0
     assert (target / 'project_scan_42.json').exists()
     output = CliRunner().invoke(cli.main, [str(target), '--export', 'ascii'])
-    assert ASCIIReport().generate([persisted_row(v) for v in result.findings]) in output.output
+    assert ASCIIReport().generate(result.findings) in output.output
 
 
 @pytest.mark.parametrize('trace', [[], [''], ['source', 'sink'], ['source -> nested', 'sink'], ['source', '']])
@@ -97,7 +97,7 @@ def test_adapter_trace_matches_real_database(tmp_path, trace):
     v = finding(trace=trace)
     row = persisted_row(v)
     database.store_vulnerabilities(scan_id, [dict(row, trace=' -> '.join(trace))])
-    assert cli._finding_to_report_dict(v) == database.get_vulnerabilities_for_scan(scan_id)[0]
+    assert cli._serialize_finding_for_json(v) == database.get_vulnerabilities_for_scan(scan_id)[0]
 
 
 @pytest.mark.parametrize('option', ['--history', '--compare', '--list-scans'])
@@ -180,3 +180,44 @@ def test_real_cli_scan_keeps_sqlite_writes_without_reporting_reload(monkeypatch,
         summary = connection.execute('SELECT num_vulnerabilities, num_files_analyzed, scan_duration FROM scans WHERE id=?',
                                      (scanner.scan_id,)).fetchone()
     assert summary == (1, 1, scanner.scan_duration)
+
+
+@pytest.mark.parametrize('format', [None, 'ascii', 'sarif'])
+def test_current_presentation_bypasses_json_serializer(current_scan, monkeypatch, format):
+    scanner, result, target = current_scan
+    monkeypatch.setattr(cli, '_serialize_finding_for_json',
+                        MagicMock(side_effect=AssertionError('unnecessary serialization')))
+    args = [str(target), '--show-trace']
+    if format:
+        reporter = cli.ASCIIReport if format == 'ascii' else cli.SARIFReport
+        generate = MagicMock(return_value='rendered')
+        monkeypatch.setattr(reporter, 'generate', generate)
+        args += ['--export', format, '--output', str(target / 'report')]
+    output = CliRunner().invoke(cli.main, args)
+    assert output.exit_code == 0, output.exception
+    assert '[HIGH][TEST] a.py:7 -> unsafe message' in output.output
+    if format:
+        generate.assert_called_once_with(result.findings)
+        assert generate.call_args.args[0] is result.findings
+
+
+@pytest.mark.parametrize('trace', [[], [''], ['source -> nested', 'sink'], ['source', '']])
+def test_console_trace_preserves_legacy_display(current_scan, trace):
+    scanner, result, target = current_scan
+    scanner.scan.return_value = ScanResult((finding(trace=trace),), (), ScanMetrics(1, 0))
+    output = CliRunner().invoke(cli.main, [str(target), '--show-trace'])
+    assert output.exit_code == 0
+    legacy_trace = persisted_row(finding(trace=trace))['trace']
+    if legacy_trace:
+        assert '    Trace: ' + ' -> '.join(legacy_trace) + '\n' in output.output
+    else:
+        assert 'Trace:' not in output.output
+
+
+def test_empty_json_export(current_scan):
+    scanner, result, target = current_scan
+    scanner.scan.return_value = ScanResult((), (), ScanMetrics(0, 0))
+    path = target / 'empty.json'
+    output = CliRunner().invoke(cli.main, [str(target), '--export', 'json', '--output', str(path)])
+    assert output.exit_code == 0
+    assert json.loads(path.read_text()) == []

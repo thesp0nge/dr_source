@@ -4,7 +4,7 @@ Status: Proposed
 
 Date: 2026-10-08
 
-Scope: Design and Phase 1 implementation. Original investigation is
+Scope: Design, Phase 1 implementation, and current-scan reporting integration. Original investigation is
 based on `324413a244704f7218704913b0ba701e502a3a30`, with 185 passing tests,
 package version `0.171.0`, and capability work targeting `0.172.0`.
 
@@ -25,9 +25,10 @@ origins = result.resolution_origin_summary
 
 Scanner.scan() returns a result after its existing database summary update, while
 retaining all legacy fields, execution order, persistence calls and failure
-boundaries. CLI/reporters still ignore the returned value and read stored rows.
+boundaries. Current-scan CLI consumption is described in the integration note below.
 This additive public/core capability targets `0.172.0`; the package stays at
-`0.171.0` until release preparation. Phases 2–4 remain deferred.
+`0.171.0` until release preparation. Legacy-attribute deprecation and persistence
+extraction remain deferred.
 
 The implementation contract intentionally narrows the original defensive-access
 proposal: findings and traces are copied **once at construction**, not on every
@@ -45,6 +46,26 @@ the collector's immutable ordered events. Read-only `resolution_summary` and
 `resolution_origin_summary` properties share pure reductions with the collector.
 No collector, AST, execution context, target/version metadata or database ID is
 returned. ScanResult is explicitly unhashable; duration is excluded from equality.
+
+## Current-scan reporting integration note
+
+The CLI now uses ScanResult findings and metrics for the just-completed scan,
+without reloading findings from SQLite. Console rendering and ASCII/SARIF
+`generate(findings: Sequence[Vulnerability]) -> str` consume structured findings
+in canonical result order. Reporters need neither the entire ScanResult nor
+Scanner. They do not modify finding payloads or query persistence.
+
+This intentionally replaces the reporters' dictionary input API for the
+`0.172.0` MINOR release: direct callers should pass `result.findings` or another
+sequence of Vulnerability objects. There is no dictionary compatibility mode.
+Rendered output remains compatible. JSON alone uses a private CLI serializer
+preserving the seven-key legacy schema and join/split trace normalization.
+SQLite storage retains its separate joined-string trace representation.
+
+Scanner still performs all persistence writes. Scan IDs and database project
+names still determine default export names; history, comparison and scan listing
+remain database-backed. Diagnostics remain outside presentation. Persistence
+extraction and deliberate legacy-attribute deprecation are future scoped work.
 
 ## Context
 
