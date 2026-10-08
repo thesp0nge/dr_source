@@ -6,6 +6,7 @@ import json
 
 from tabulate import tabulate
 
+from dr_source.api import Vulnerability
 from dr_source.core.codebase import Codebase
 from dr_source.core.scanner import Scanner
 from dr_source.core.db import ScanDatabase
@@ -18,6 +19,22 @@ try:
     from importlib.metadata import version as get_version
 except ImportError:
     from importlib_metadata import version as get_version
+
+
+def _finding_to_report_dict(finding: Vulnerability) -> dict:
+    """Adapt a current finding to the existing database-shaped report schema."""
+    # Preserve the historical join/split normalization, including empty traces
+    # and delimiters within a trace step, without a database round trip.
+    trace = " -> ".join(finding.trace)
+    return {
+        "file": finding.file_path,
+        "vuln_type": finding.vulnerability_type,
+        "match": finding.message,
+        "line": finding.line_number,
+        "severity": finding.severity,
+        "plugin_name": finding.plugin_name,
+        "trace": trace.split(" -> ") if trace else [],
+    }
 
 
 @click.command(context_settings=dict(ignore_unknown_options=True))
@@ -190,18 +207,16 @@ def main(
                     click.echo(f"  - {vuln}")
         return
 
-    # 1. Instantiate and run the new scanner
     scanner = Scanner(target_path=target_path, timeout=timeout)
-    scanner.scan()  # This does everything
+    result = scanner.scan()
 
-    # 2. Get results back from the scanner's DB instance
-    #    (We need to fetch them for reporting)
+    # Persistence identity still supplies export filenames; current output uses
+    # the returned snapshot rather than reloading the just-written database rows.
     scan_id = scanner.scan_id
-    results_list_of_dicts = scanner.db.get_vulnerabilities_for_scan(scan_id)
-
-    num_vulns = len(results_list_of_dicts)
-    num_files = scanner.num_files_analyzed
-    scan_duration = scanner.scan_duration
+    results_list_of_dicts = [_finding_to_report_dict(finding) for finding in result.findings]
+    num_vulns = len(result.findings)
+    num_files = result.metrics.files_selected
+    scan_duration = result.metrics.duration_seconds
 
     # 3. Reporting logic (now works with 'results_list_of_dicts')
     if export:
