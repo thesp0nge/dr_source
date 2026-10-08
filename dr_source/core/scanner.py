@@ -10,6 +10,7 @@ from dr_source.core.db import ScanDatabase
 from dr_source.core.project_index import ProjectIndex
 from dr_source.core.context import AnalysisContext
 from dr_source.core.diagnostics import ScanDiagnostics, ResolutionDiagnosticConflict
+from dr_source.core.result import ScanMetrics, ScanResult
 from dr_source.core.utils import timeout_session, TimeoutException
 
 logger = logging.getLogger(__name__)
@@ -126,10 +127,11 @@ class Scanner:
                 seen_plugin_ids.add(id(plugin))
         return unique_plugins
 
-    def scan(self):
+    def scan(self) -> ScanResult:
         """
         Walks the target directory, delegates files to plugins,
-        and saves all results to the database.
+        saves results to the database, and returns a detached ScanResult.
+        Legacy result attributes and persistence behavior remain populated.
         """
         logger.debug(f"Starting scan on: {self.target_path}")
 
@@ -258,4 +260,12 @@ class Scanner:
             num_vulnerabilities=len(all_findings_dict),
             num_files_analyzed=self.num_files_analyzed,
             scan_duration=self.scan_duration,
+        )
+        return ScanResult(
+            findings=tuple(self.all_findings),
+            diagnostics=self.diagnostics.resolution_events(),
+            metrics=ScanMetrics(
+                files_selected=self.num_files_analyzed,
+                duration_seconds=self.scan_duration,
+            ),
         )

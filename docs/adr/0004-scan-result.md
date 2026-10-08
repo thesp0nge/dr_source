@@ -4,9 +4,47 @@ Status: Proposed
 
 Date: 2026-10-08
 
-Scope: Design only. This ADR adds no runtime API or behavior. Investigation is
+Scope: Design and Phase 1 implementation. Original investigation is
 based on `324413a244704f7218704913b0ba701e502a3a30`, with 185 passing tests,
 package version `0.171.0`, and capability work targeting `0.172.0`.
+
+## Phase 1 implementation note
+
+`dr_source.core.result` now supplies frozen ScanResult and ScanMetrics dataclasses.
+
+```python
+from dr_source.core.result import ScanMetrics, ScanResult
+from dr_source.core.scanner import Scanner
+
+result = Scanner("path/to/project").scan()
+findings = result.findings
+events = result.diagnostics
+outcomes = result.resolution_summary
+origins = result.resolution_origin_summary
+```
+
+Scanner.scan() returns a result after its existing database summary update, while
+retaining all legacy fields, execution order, persistence calls and failure
+boundaries. CLI/reporters still ignore the returned value and read stored rows.
+This additive public/core capability targets `0.172.0`; the package stays at
+`0.171.0` until release preparation. Phases 2–4 remain deferred.
+
+The implementation contract intentionally narrows the original defensive-access
+proposal: findings and traces are copied **once at construction**, not on every
+access. Findings/diagnostic tuple containers and metrics are immutable, but the
+existing Vulnerability payloads remain mutable. Editing a result finding cannot
+change Scanner, and vice versa; editing it does change that result's payload and
+can change equality or presentation order. No deep immutability is claimed.
+The implementation requirements selected this smaller additive contract rather
+than redesigning the finding model or adding a copy-on-access property.
+
+Result findings are sorted by a lexically normalized path and stable finding
+values, with the raw path as a final tie breaker. Original paths remain intact;
+legacy order and first-wins payload selection remain unchanged. Diagnostics are
+the collector's immutable ordered events. Read-only `resolution_summary` and
+`resolution_origin_summary` properties share pure reductions with the collector.
+No collector, AST, execution context, target/version metadata or database ID is
+returned. ScanResult is explicitly unhashable; duration is excluded from equality.
 
 ## Context
 
@@ -15,7 +53,8 @@ from resolution. [ADR 0002](0002-structured-call-resolution.md) supplies structu
 resolution decisions. [ADR 0003](0003-structured-scan-diagnostics.md), including
 its implementation notes, defines scan-owned resolution events, complete source
 spans, conflict invariants, and provenance. These execution services now exist,
-but `Scanner.scan()` still implicitly returns `None`.
+but at the design baseline `Scanner.scan()` still implicitly returned `None`.
+Phase 1 now supplies the return boundary described below.
 
 Library consumers inspect Scanner's mutable attributes. The production CLI goes
 further: after scanning it reads findings back from SQLite before displaying or
@@ -28,7 +67,8 @@ Scanner is both executor and result container. Its public-looking fields mix
 inputs, partially accumulated state, final observations, and database identifiers.
 Consumers cannot receive a completed result without retaining the executor, and
 current reporting depends on successful persistence of findings. A tuple wrapping
-`all_findings` alone would retain mutable objects owned by plugins/Scanner.
+`all_findings` alone would retain mutable objects owned by plugins/Scanner; the
+implemented snapshot copies those objects and their traces before exposure.
 
 The next boundary should support library use, deterministic tests, diagnostic
 inspection, reporting, benchmarks, and eventual service execution. It must not
@@ -101,32 +141,32 @@ Important lifecycle details:
 
 ## Proposed ScanResult model
 
-Recommend `dr_source.core.scan_result` as the public import location when
-implemented, containing `ScanResult` and `ScanMetrics`. The public value shape is:
+The public import location is `dr_source.core.result`, containing ScanResult
+and ScanMetrics. The public value shape is:
 
 ```python
-# Conceptual public surface; not an implementation.
+# Public structure; copying, sorting and pure reductions omitted here.
 @dataclass(frozen=True)
 class ScanMetrics:
     files_selected: int
     duration_seconds: float = field(compare=False)
 
+@dataclass(frozen=True)
 class ScanResult:
-    findings: Tuple[Vulnerability, ...]  # Read-only defensive-copy property.
+    findings: Tuple[Vulnerability, ...]
     diagnostics: Tuple[ResolutionDiagnostic, ...]
     metrics: ScanMetrics
 
+    @property
     def resolution_summary(self) -> ResolutionSummary: ...
+    @property
     def resolution_origin_summary(self) -> ResolutionOriginSummary: ...
 ```
 
-ScanResult should use frozen storage with a private detached findings tuple,
-a constructor accepting the three public values, and a read-only `findings`
-property returning detached copies. The shape above describes the contract,
-not three unrestricted mutable attributes. Construction establishes canonical
-ordering and tuple containers; summaries are derived from events. No finding
-count is stored; use `len(result.findings)` and retain a local findings snapshot
-when repeatedly processing it.
+Construction copies findings and their trace lists, sorts the copies and establishes
+tuple containers. Finding payloads remain mutable and are returned directly from
+that detached tuple; there is no copy on access. Summaries derive from events.
+No finding count is stored; use `len(result.findings)`.
 
 Metadata decisions for the first implementation:
 
@@ -136,7 +176,7 @@ Metadata decisions for the first implementation:
 | Engine version | Omit initially; existing reporters obtain installed package metadata per versioning policy. This result is not a reproducibility manifest. Before transporting historical results between engine installations, design captured producer-version metadata so a reporter does not misattribute its own runtime version. Never hardcode the release target. |
 | Database `scan_id` | Omit. Persistence-specific receipt, not semantic scan identity. |
 | Start/end timestamps or generated UUID | Omit. No existing trustworthy execution timestamp pair or backend-independent identity needs this first API. Database and reporter timestamps are not scan bounds. |
-| Project-resolution summaries | Derive through the two methods, retaining all events. No duplicated stored summary fields. |
+| Project-resolution summaries | Derive through the two properties, retaining all events. No duplicated stored summary fields. |
 
 ## Immutability and determinism
 
@@ -144,29 +184,24 @@ Frozen dataclasses are only shallowly immutable. `Vulnerability` is a mutable
 dataclass with a mutable `List[str]` trace. Do not freeze/change that public type,
 convert its trace to a tuple, or silently expose the Scanner's objects.
 
-Recommend effective immutability through defensive copies:
+The implemented contract is frozen containers with isolated mutable findings:
 
-1. Copy each accepted finding and its trace into private result-owned storage at
-   finalization, constructing the existing Vulnerability type from its declared
-   fields. No arbitrary plugin payloads or parser nodes are retained.
-2. Each `result.findings` access returns a tuple of fresh Vulnerability copies,
-   including fresh trace lists. Consumers may edit these local copies; later
-   reads, result equality, Scanner fields, and other consumers are unaffected.
+1. Copy each accepted finding and its trace at construction, creating the existing
+   Vulnerability type from its declared fields. No plugin payloads or parser nodes
+   are retained, and Scanner/plugin finding objects are not shared.
+2. `result.findings` is an immutable tuple holding those copies. Consumers can edit
+   individual findings and trace lists, and subsequent reads retain those edits.
+   Scanner remains unaffected. Legacy edits likewise cannot change result copies.
 3. Diagnostics and SymbolIds are already frozen scalar/tuple values and may be
-   shared safely in a new immutable tuple. Metrics are frozen scalar values.
+   safely shared in an immutable tuple. Metrics are frozen scalar values.
 
-This keeps the existing finding model and makes the public result effectively
-immutable. Private storage is an implementation detail, not a supported mutation
-API. Finding object identity between accesses is not promised. A detached tuple
-exposing its mutable elements directly was considered but rejected: it would let
-one consumer change the result another consumer observes.
-
-Result equality compares private finding values, diagnostics, and the comparable
-metrics. Duration is excluded. Equality expresses observation equality, not scan
-identity, persistence success, equivalent rulesets, or cache validity. Explicitly
-leave ScanResult unhashable; mutable Vulnerability internals are unsuitable hash
-keys. Do not promise stable cross-revision fingerprints or checkout-relocation
-identity.
+This is not deep immutability of the result graph or Vulnerability. The earlier
+copy-on-access proposal is superseded for Phase 1 by the smaller copy-once contract.
+Result equality compares current finding values, diagnostics and comparable
+metrics; duration is excluded. Caller payload edits can change equality and the
+initially canonical presentation order. Equality does not establish scan identity,
+persistence success, equivalent rulesets or cache validity. ScanResult is explicitly
+unhashable. No stable cross-revision or checkout-relocation identity is promised.
 
 No ProjectIndex, AnalysisContext, collector, plugin, database connection, AST,
 or Tree-sitter node is exposed. A finalized result stays independent if Scanner's
@@ -184,12 +219,13 @@ result. The result's presentation order is canonical, independent of arrival
 order **for the same retained finding values**:
 
 ```text
-(file_path, line_number, vulnerability_type, message,
- severity, plugin_name, tuple(trace))
+(normpath(file_path), line_number, vulnerability_type, message,
+ severity, plugin_name, tuple(trace), file_path)
 ```
 
-Use supplied paths and ordinary deterministic string/integer comparisons; do not
-resolve symlinks or alter finding paths. Preserve trace step order. Canonicalize
+Normalize paths lexically only in the sort key. Use the raw supplied path as a
+final tie breaker when normalized keys coincide; do not resolve symlinks, change
+case, or alter finding payload paths. Preserve trace step order. Canonicalize
 only the copied result tuple, leaving the legacy list, database write order,
 and current CLI behavior unchanged in Phase 1.
 
@@ -222,9 +258,9 @@ These are all recorded resolver probes, not all application calls. Preserve:
   exact receiver/module binding.
 - `FALLBACK_PROBE`: no positive project evidence, not external-library ownership.
 
-The summary methods use a shared pure reduction over snapshot events, returning
-the existing frozen ResolutionSummary and ResolutionOriginSummary. Extract/reuse
-collector counting logic when implemented so there are not divergent definitions.
+The summary properties use shared pure reductions over snapshot events, returning
+existing frozen ResolutionSummary and ResolutionOriginSummary values. Collector
+summaries delegate to the same helpers, avoiding divergent definitions.
 No collector reference or precomputed mutable dictionary belongs in ScanResult.
 Both independent decompositions and the project-evidenced grouping remain:
 
@@ -341,12 +377,12 @@ Document this as an API change. During transition, legacy findings, counters,
 diagnostics, scan ID and database access remain populated with existing semantics.
 
 Once shipped, ScanResult, ScanMetrics, their documented constructor/accessors,
-the findings tuple/value-copy semantics, diagnostics tuple, summary methods and
+the findings tuple/value-copy semantics, diagnostics tuple, summary properties and
 summary types, and `Scanner.scan()` return annotation are public. Exposed
 ResolutionDiagnostic, resolution enums, and SymbolId payloads also become public
 contracts through that API; the mutable collector/index do not. Prefer keyword
-construction and document fields without promising dataclass internals or private
-storage. Public import paths must be covered by implementation tests.
+construction and document fields without promising copying implementation
+internals. Public import paths are covered by implementation tests.
 
 Follow `0.MINOR.PATCH` policy for future changes: public breaking changes require
 an intentional MINOR release and migration documentation, not PATCH. Deprecation
@@ -389,9 +425,10 @@ resolution/inter-file suites, the full suite, and `git diff --check`:
    compare equal; findings, diagnostics or file count changes compare unequal.
    Result is unhashable; it is not a persistent identity or cache key.
 6. **Immutability/isolation:** frozen fields and tuples reject reassignment/item
-   mutation. Mutate original/legacy findings and traces, then copies obtained
-   through result.findings, and verify subsequent result reads/equality are
-   unchanged. Later collector records must not alter result diagnostics.
+   mutation. Mutate original/legacy findings and traces and verify result copies
+   remain unchanged. Mutate result findings/traces and verify legacy values are
+   unaffected; result payload edits intentionally persist across accesses. Later
+   collector records must not alter result diagnostics.
 7. **Ordering:** permute identical retained finding values and filesystem
    traversal to verify canonical result order without altering legacy execution.
    Test diagnostic registration/recursive/category revisits. Do not weaken tests
@@ -415,8 +452,10 @@ resolution/inter-file suites, the full suite, and `git diff --check`:
     on paths that currently raise.
 
 Tests must isolate database writes as existing conftest does and must not depend
-on network, publication, or executing vulnerable fixture programs. Tests listed
-here are required future work, not tests added or claimed to pass by this ADR.
+on network, publication, or executing vulnerable fixture programs. This remains
+the acceptance strategy for implementation and later phases; the
+Phase 1 note above describes the implemented scope, not a claim that all future
+migration tests have been added.
 
 ## Migration phases
 
@@ -436,12 +475,12 @@ here are required future work, not tests added or claimed to pass by this ADR.
    Remove scan-time database dependency only with an explicitly tested migration.
    Add an orchestration layer only if actual consumers justify it.
 
-Each phase is separate scoped work. Do not combine all four into the first
-implementation or commit this proposal as implemented behavior.
+Each phase is separate scoped work. Phase 1 is implemented; do not combine the
+remaining migrations into this additive return contract.
 
 ## Non-goals
 
-This task implements no ScanResult/ScanMetrics, CLI rendering, persistence or
+Beyond Phase 1, this ADR authorizes no CLI rendering, persistence or
 reporter rewrite, database schema, finding model, general diagnostic hierarchy,
 call graph, function summaries, Security IR, AI features, language semantics,
 concurrency, version bump, release automation, tags or publication. ProjectIndex
@@ -450,10 +489,10 @@ fingerprint is designed here.
 
 ## Risks and trade-offs
 
-- Defensive copying adds linear allocation at finalization and findings access.
-  Consumers should retain one local tuple when iterating repeatedly. This is the
-  price of effective immutability while preserving mutable Vulnerability objects;
-  do not conceal the cost or redesign findings inside this patch.
+- Defensive copying adds linear allocation at construction plus sorting cost.
+  Finding payloads remain mutable: caller edits affect that result, including
+  equality and initial ordering, while preserving isolation from Scanner.
+  Containers being frozen must not be described as deep finding immutability.
 - Canonical result order differs from legacy discovery order. This is a deliberate
   public presentation contract; Phase 1 leaves old consumers unchanged. Sorting
   cannot guarantee deterministic payload selection for arbitrary plugins.
@@ -472,9 +511,9 @@ fingerprint is designed here.
 
 ## Consequences
 
-Recommend Option C for the return model and persistence Option B for the next
-implementation. A small Phase 1 is ready to implement with the copy, ordering,
-equality and failure-boundary tests above. It creates a public result boundary
+Phase 1 implements return-model Option C and persistence Option B with frozen
+containers, defensive snapshots and the copy, ordering, equality and failure
+boundaries above. It creates a public result boundary
 without changing analysis semantics or requiring a generalized session engine.
 
 Callers gain an independently usable observation snapshot and resolution events.

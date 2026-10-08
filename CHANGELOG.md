@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- `Scanner.scan()` now returns a typed `ScanResult` containing defensive finding
+  snapshots in deterministic presentation order, immutable resolution events,
+  derived status/origin summaries, and `ScanMetrics.files_selected` and duration.
+  Result containers are frozen; individual finding payloads remain mutable.
+  Legacy Scanner attributes, internal SQLite persistence, and CLI/reporting flow
+  are retained. This public/core capability targets `0.172.0`.
 - Structured call-resolution outcomes for Python, Java, and JavaScript, with
   deterministic candidate identities and explicit resolved, unresolved,
   ambiguous, and unsupported decisions.
@@ -22,7 +28,7 @@ and this project adheres to
 - Internal structured resolution diagnostics and provenance, distinguishing
   explicit project bindings, candidate-backed lookups, and fallback probes.
   Events deduplicate by complete source spans and reject conflicting payloads;
-  summaries remain internal, without CLI metrics or persistence.
+  no CLI metrics or diagnostic persistence are introduced.
 - A documented pre-1.0 versioning and release policy. The current unreleased
   architectural work targets `0.172.0`; the package version remains unchanged
   until release preparation.

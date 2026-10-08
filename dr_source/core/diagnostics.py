@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional, Tuple
+from typing import Dict, Iterable, Optional, Tuple
 
 from dr_source.core.project_index import SymbolId
 from dr_source.core.resolution import ResolutionReason, ResolutionStatus
@@ -116,22 +116,36 @@ class ScanDiagnostics:
         )))
 
     def summary(self) -> ResolutionSummary:
-        counts = {status: 0 for status in ResolutionStatus}
-        for event in self._resolution_events.values():
-            counts[event.status] += 1
-        return ResolutionSummary(
-            len(self._resolution_events),
-            counts[ResolutionStatus.RESOLVED], counts[ResolutionStatus.UNRESOLVED],
-            counts[ResolutionStatus.AMBIGUOUS], counts[ResolutionStatus.UNSUPPORTED],
-        )
+        return _summarize_resolution_events(self._resolution_events.values())
 
     def origin_summary(self) -> ResolutionOriginSummary:
-        counts = {origin: 0 for origin in ResolutionOrigin}
-        for event in self._resolution_events.values():
-            counts[event.origin] += 1
-        return ResolutionOriginSummary(
-            len(self._resolution_events),
-            counts[ResolutionOrigin.EXPLICIT_PROJECT_BINDING],
-            counts[ResolutionOrigin.CANDIDATE_BACKED],
-            counts[ResolutionOrigin.FALLBACK_PROBE],
-        )
+        return _summarize_resolution_origins(self._resolution_events.values())
+
+
+def _summarize_resolution_events(events: Iterable[ResolutionDiagnostic]) -> ResolutionSummary:
+    """Pure reduction shared by collectors and detached scan results."""
+    counts = {status: 0 for status in ResolutionStatus}
+    total = 0
+    for event in events:
+        counts[event.status] += 1
+        total += 1
+    return ResolutionSummary(
+        total,
+        counts[ResolutionStatus.RESOLVED], counts[ResolutionStatus.UNRESOLVED],
+        counts[ResolutionStatus.AMBIGUOUS], counts[ResolutionStatus.UNSUPPORTED],
+    )
+
+
+def _summarize_resolution_origins(events: Iterable[ResolutionDiagnostic]) -> ResolutionOriginSummary:
+    """An independent decomposition of the same recorded event population."""
+    counts = {origin: 0 for origin in ResolutionOrigin}
+    total = 0
+    for event in events:
+        counts[event.origin] += 1
+        total += 1
+    return ResolutionOriginSummary(
+        total,
+        counts[ResolutionOrigin.EXPLICIT_PROJECT_BINDING],
+        counts[ResolutionOrigin.CANDIDATE_BACKED],
+        counts[ResolutionOrigin.FALLBACK_PROBE],
+    )
