@@ -2,9 +2,18 @@
 import json
 from datetime import datetime
 
+try:
+    from importlib.metadata import PackageNotFoundError, version as get_version
+except ImportError:
+    from importlib_metadata import PackageNotFoundError, version as get_version
+
 
 class SARIFReport:
     def generate(self, results):
+        try:
+            package_version = get_version("dr_source")
+        except PackageNotFoundError:
+            package_version = "unknown"
         sarif_results = []
         for res in results:
             sarif_results.append(
@@ -39,7 +48,7 @@ class SARIFReport:
                     "tool": {
                         "driver": {
                             "name": "DRSource",
-                            "version": "1.0.0",
+                            "version": package_version,
                             "informationUri": "https://github.com/thesp0nge/dr_source",
                             "rules": [
                                 {"id": res["vuln_type"], "name": res["vuln_type"]}

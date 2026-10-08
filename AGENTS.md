@@ -531,6 +531,24 @@ Follow-up work
 
 ---
 
+## Versioning and releases
+
+Follow [docs/versioning.md](docs/versioning.md). `pyproject.toml` is the canonical
+package version; runtime/reporting code must use installed package metadata,
+never a hardcoded DRSource version.
+
+* Do not invent version bumps during ordinary feature work or solely because
+  tests changed. Bump only during release preparation.
+* Classify intended releases using `0.MINOR.PATCH`: MINOR for capabilities,
+  architecture, public contracts, or deliberate breaking changes; PATCH for
+  compatible fixes and warranted documentation/release corrections.
+* Document public/API breaking changes explicitly even during `0.x`.
+* Put new work under `[Unreleased]`; do not edit released changelog sections.
+  Only release-preparation tasks may move those entries into a versioned section.
+* New release tags use `vX.Y.Z`; never rename historical tags for consistency.
+
+---
+
 ## Local development
 
 DRSource supports Python 3.9 and later unless the project metadata is explicitly changed.

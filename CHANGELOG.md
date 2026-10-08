@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Structured call-resolution outcomes for Python, Java, and JavaScript, with
+  deterministic candidate identities and explicit resolved, unresolved,
+  ambiguous, and unsupported decisions.
+- Python import-aware project resolution for supported absolute
+  `from module import function` and `import module; module.function()` bindings.
+  Missing targets remain explicit failures; aliases remain unsupported.
+- An explicit scan-scoped `AnalysisContext` and `AnalyzerPlugin.prepare(context)`
+  lifecycle hook before indexing and analysis. Built-in index consumers retain
+  this context; a temporary adapter supports legacy `project_index` consumers.
+- Internal structured resolution diagnostics and provenance, distinguishing
+  explicit project bindings, candidate-backed lookups, and fallback probes.
+  Events deduplicate by complete source spans and reject conflicting payloads;
+  summaries remain internal, without CLI metrics or persistence.
+- A documented pre-1.0 versioning and release policy. The current unreleased
+  architectural work targets `0.172.0`; the package version remains unchanged
+  until release preparation.
+
+### Changed
+
+- `ProjectIndex` retains colliding declarations under source-based symbol
+  identities instead of overwriting them by name. Unique-only resolution skips
+  ambiguous targets rather than selecting a declaration by registration order;
+  findings that depended on the former arbitrary selection can disappear.
+- Python, Java, and JavaScript project lookups are language-scoped, preventing
+  declarations in another language from hiding or resolving a target. Java
+  remains name-based; JavaScript module and receiver resolution remain deferred.
+
+### Fixed
+
+- Resolution diagnostics distinguish nested/chained calls sharing a start
+  position by recording the complete call-expression span.
+- SARIF tool metadata reports the installed DRSource package version instead of
+  a hardcoded `1.0.0`.
+
 ## [0.171.0] - 2026-08-11
 
 ### Added
