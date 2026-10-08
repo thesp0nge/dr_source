@@ -6,15 +6,16 @@ it to `0.18.0`, `0.19.0`, or another shorter sequence.
 
 ## Current release train
 
-- Current released version: `0.171.0`.
-- Intended next capability release: `0.172.0`.
+- Latest published release before this preparation: `0.171.0`.
+- Locally prepared capability release candidate: `0.172.0`.
 - Possible compatible fixes afterward: `0.172.1`, `0.172.2`.
 
-The current unreleased work on project symbol identity, call resolution, plugin
-lifecycle, and resolution diagnostics/provenance belongs to the `0.172.0` release
-train. **`0.172.0` is a target, not a released version.** The package remains at
-`0.171.0` until release preparation. An installed editable checkout can therefore
-report `0.171.0` while containing unreleased work.
+Release preparation has set package metadata and dated changelog entries to
+`0.172.0`. This does not mean a tag, GitHub Release, or PyPI publication exists.
+The core foundation work includes symbol identity, structured resolution,
+plugin lifecycle, diagnostics/provenance, ScanResult, and structured reporting.
+Persistence extraction remains deferred. Installed editable checkouts must be
+reinstalled after this metadata change to report the prepared version.
 
 ## Choosing a version
 
@@ -98,9 +99,9 @@ Documenting it does not authorize publication during ordinary development.
 12. Create the GitHub Release for that tag, with release notes and artifacts.
 13. Publish the verified artifacts to PyPI.
 
-The next capability release should follow this procedure for `0.172.0` when
-explicitly cut. Do not create a dated `0.172.0` changelog section or bump the
-package in advance merely to mark the release target.
+The `0.172.0` candidate is now in release preparation. Its version bump and
+dated changelog are preparation metadata, not publication. Complete artifact
+validation and review before the separately authorized commit, tag and release.
 
 ## Future release automation
 
@@ -129,7 +130,7 @@ The audit establishing this policy found these categories:
 
 | Occurrences | Classification and action |
 | --- | --- |
-| `pyproject.toml [project].version` | Canonical package metadata; remains `0.171.0`. |
+| `pyproject.toml [project].version` | Canonical package metadata; was `0.171.0` at the policy audit, now `0.172.0` during release preparation. |
 | CLI `--version` | Runtime consumer of installed package metadata; unchanged. |
 | SARIF `tool.driver.version = "1.0.0"` | Incorrect hardcoded DRSource runtime version; replaced with installed package metadata. |
 | SARIF `version = "2.1.0"` and schema URL | Legitimate SARIF format identifiers; unchanged. |

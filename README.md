@@ -66,6 +66,44 @@ dr_source --show-trace /path/to/codebase
 dr_source --export sarif --output report.sarif /path/to/codebase
 ```
 
+## Library API
+
+```python
+from dr_source.core.scanner import Scanner
+
+result = Scanner("path/to/project").scan()
+for finding in result.findings:
+    print(finding.vulnerability_type, finding.file_path, finding.line_number)
+
+print(result.metrics.files_selected)
+```
+
+`ScanResult` and `ScanMetrics` are available from `dr_source.core.result`.
+Result containers are immutable; findings and their traces are defensive copies
+of Scanner state, but individual `Vulnerability` values remain mutable.
+`files_selected` counts selected files, including work later skipped or failed.
+Scanner still writes scan history to SQLite; persistence extraction is deferred.
+
+`result.diagnostics`, `result.resolution_summary`, and
+`result.resolution_origin_summary` describe recorded project-resolution attempts,
+including explicit project bindings, candidate-backed lookups, and fallback
+probes. They do **not** measure total application-call coverage; fallback probes
+do not imply external-library ownership.
+
+ASCII and SARIF reporters accept structured finding sequences:
+
+```python
+from dr_source.reports.ascii import ASCIIReport
+from dr_source.reports.sarif import SARIFReport
+
+print(ASCIIReport().generate(result.findings))
+sarif = SARIFReport().generate(result.findings)
+```
+
+In 0.172.0 these reporter APIs replace dictionary inputs. JSON exports retain
+their existing compatibility schema. See [ScanResult design](docs/adr/0004-scan-result.md)
+and the [pre-1.0 versioning policy](docs/versioning.md) for API expectations.
+
 ## License
 
 DRSource is licensed under the MIT License.

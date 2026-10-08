@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # It replaces most of setup.py
 [project]
 name = "dr_source"
-version = "0.171.0"
+version = "0.172.0"
 description = "A plugin-driven, multi-language SAST."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -55,6 +55,9 @@ ruby_ast = "dr_source.plugins.ruby.plugin:RubyAstAnalyzer"
 where = ["."] # Search for packages in the root
 include = ["dr_source*"] # Find dr_source and all its sub-packages
 exclude = ["tests*"] # Exclude tests from the package
+
+[tool.setuptools.package-data]
+dr_source = ["config/knowledge_base.yaml"]
 
 [tool.pytest.ini_options]
 # Scanner fixtures include deliberately vulnerable files named *_test.py. They

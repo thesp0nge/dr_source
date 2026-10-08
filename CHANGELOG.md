@@ -8,56 +8,54 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.172.0] - 2026-10-08
+
 ### Added
 
-- `Scanner.scan()` now returns a typed `ScanResult` containing defensive finding
-  snapshots in deterministic presentation order, immutable resolution events,
-  derived status/origin summaries, and `ScanMetrics.files_selected` and duration.
-  Result containers are frozen; individual finding payloads remain mutable.
-  Legacy Scanner attributes and internal SQLite persistence are retained. This
-  public/core capability targets `0.172.0`.
-- Structured call-resolution outcomes for Python, Java, and JavaScript, with
-  deterministic candidate identities and explicit resolved, unresolved,
-  ambiguous, and unsupported decisions.
-- Python import-aware project resolution for supported absolute
+- Collision-safe project symbol identities retain multiple declarations and
+  support deterministic candidate discovery without name-based overwrites.
+- Structured resolved, unresolved, ambiguous, and unsupported call-resolution
+  outcomes for Python, Java, and JavaScript.
+- Python import-aware cross-file resolution for supported absolute
   `from module import function` and `import module; module.function()` bindings.
   Missing targets remain explicit failures; aliases remain unsupported.
-- An explicit scan-scoped `AnalysisContext` and `AnalyzerPlugin.prepare(context)`
-  lifecycle hook before indexing and analysis. Built-in index consumers retain
-  this context; a temporary adapter supports legacy `project_index` consumers.
-- Internal structured resolution diagnostics and provenance, distinguishing
+- Structured resolution diagnostics with complete call-site spans and provenance:
   explicit project bindings, candidate-backed lookups, and fallback probes.
-  Events deduplicate by complete source spans and reject conflicting payloads;
-  no CLI metrics or diagnostic persistence are introduced.
-- A documented pre-1.0 versioning and release policy. The current unreleased
-  architectural work targets `0.172.0`; the package version remains unchanged
-  until release preparation.
+  These describe project-resolution activity, not total application-call coverage.
+- `Scanner.scan()` returns a typed `ScanResult` with deterministic defensive
+  finding snapshots, immutable resolution events, derived status/origin
+  summaries, and `ScanMetrics` for files selected and duration. Result containers
+  are frozen; individual Vulnerability payloads remain mutable and detached.
+- A documented pre-1.0 semantic versioning and release policy.
 
 ### Changed
 
-- ASCII and SARIF `generate()` now accept `Sequence[Vulnerability]` rather than
-  database-shaped dictionaries. Direct callers must pass structured findings
-  (for example, `result.findings`); no dual-mode dictionary API is retained.
-  Current-scan console rendering also uses structured findings directly. Existing
-  report output and JSON schemas remain stable; JSON retains an explicit
-  compatibility serializer. This API evolution targets `0.172.0` (MINOR).
-- Current-scan CLI/reporting consumes `ScanResult` directly instead of reloading
-  findings from SQLite, using canonical result presentation order. Existing
-  report schemas, SQLite writes, and database-backed history/compare are retained.
-- `ProjectIndex` retains colliding declarations under source-based symbol
-  identities instead of overwriting them by name. Unique-only resolution skips
-  ambiguous targets rather than selecting a declaration by registration order;
-  findings that depended on the former arbitrary selection can disappear.
-- Python, Java, and JavaScript project lookups are language-scoped, preventing
-  declarations in another language from hiding or resolving a target. Java
-  remains name-based; JavaScript module and receiver resolution remain deferred.
+- Python, Java, and JavaScript project resolution is language-scoped. Unique-only
+  resolution skips ambiguous declarations instead of selecting by registration
+  order; findings dependent on the former arbitrary selection can disappear.
+  Java receiver/type and JavaScript module resolution remain deferred.
+- Plugins receive an explicit scan-scoped `AnalysisContext` through
+  `AnalyzerPlugin.prepare(context)` before indexing and analysis. A temporary
+  adapter retains compatibility with legacy `project_index` consumers.
+- Current-scan CLI output uses ScanResult findings and metrics directly, with
+  canonical finding presentation order rather than SQLite retrieval order.
+- ASCII and SARIF `generate()` accept `Sequence[Vulnerability]` instead of
+  database-shaped dictionaries. Direct callers must pass structured findings,
+  such as `result.findings`; no dictionary compatibility mode is retained.
+  Console rendering also consumes structured findings; JSON keeps its existing
+  seven-key schema and trace representation.
+- Legacy Scanner attributes and internal SQLite writes remain available.
+  History, comparison, and scan listing remain database-backed. Persistence
+  extraction is deferred to a later release; diagnostics are not rendered by CLI.
 
 ### Fixed
 
-- Resolution diagnostics distinguish nested/chained calls sharing a start
-  position by recording the complete call-expression span.
-- SARIF tool metadata reports the installed DRSource package version instead of
-  a hardcoded `1.0.0`.
+- Wheel and source distributions explicitly include the factory knowledge base
+  required by installed scans.
+- Complete source spans distinguish nested/chained calls sharing a start
+  position, including JavaScript diagnostic call-site collisions.
+- SARIF tool metadata uses the installed DRSource package version instead of a
+  hardcoded `1.0.0`, with the existing missing-metadata fallback.
 
 ## [0.171.0] - 2026-08-11
 
